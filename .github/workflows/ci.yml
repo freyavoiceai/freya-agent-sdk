@@ -22,7 +22,7 @@ jobs:
       - run: npm run smoke
       - run: npm run check:package
       - run: npm run docs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: api-docs
           path: docs/api
