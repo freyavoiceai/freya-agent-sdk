@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Freya voice agent</title>
+</head>
+<body>
+  <!-- Serve the repository root (so ../dist/ resolves) and run examples/token-backend.mjs. -->
+  <button id="call">Start call</button>
+  <button id="hang" disabled>Hang up</button>
+  <p id="status">idle</p>
+  <ol id="log"></ol>
+  <script src="../dist/freya-agent-sdk.js"></script>
+  <script>
+    const BACKEND = "http://localhost:8787";
+    const BASE_URL = "https://app.freyavoice.ai";
+    const $ = (id) => document.getElementById(id);
+    const log = (who, text) => {
+      const li = document.createElement("li");
+      li.textContent = who + ": " + text;
+      $("log").appendChild(li);
+    };
+    let client = null;
+
+    $("call").onclick = async () => {
+      $("call").disabled = true;
+      const res = await fetch(BACKEND + "/freya-token", { headers: { Authorization: "Bearer demo-session" } });
+      const { token } = await res.json();
+      client = new Freya.FreyaClient({ baseUrl: BASE_URL, token, mode: "call" });
+      client.on(Freya.FreyaEvent.StateChanged, (s) => { $("status").textContent = s; });
+      client.on(Freya.FreyaEvent.UserTranscript, ({ text, final }) => final && log("you", text));
+      client.on(Freya.FreyaEvent.BotMessage, ({ text }) => log("agent", text));
+      client.on(Freya.FreyaEvent.Error, ({ message }) => log("error", message));
+      client.on(Freya.FreyaEvent.Disconnected, () => { $("call").disabled = false; $("hang").disabled = true; });
+      await client.connect();
+      $("hang").disabled = false;
+    };
+    $("hang").onclick = () => client && client.disconnect();
+  </script>
+</body>
+</html>

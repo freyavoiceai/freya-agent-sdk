@@ -1,0 +1,10 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/index.ts", "src/agent/index.ts", "src/speech/index.ts"],
+  "out": "docs/api",
+  "name": "Freya Agent SDK",
+  "readme": "none",
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "treatWarningsAsErrors": false
+}

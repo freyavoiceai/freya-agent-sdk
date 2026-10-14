@@ -1,0 +1,88 @@
+{
+  "name": "@freya/agent-sdk",
+  "version": "0.1.0",
+  "description": "Freya Agent SDK for web, React Native and Node: agents over WebRTC or REST, speech-to-text, text-to-speech",
+  "license": "UNLICENSED",
+  "private": true,
+  "author": "Freya Voice AI",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/freyavoiceai/freya-agent-sdk.git"
+  },
+  "homepage": "https://github.com/freyavoiceai/freya-agent-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/freyavoiceai/freya-agent-sdk/issues"
+  },
+  "keywords": [
+    "freya",
+    "voice",
+    "agent",
+    "webrtc",
+    "speech-to-text",
+    "text-to-speech",
+    "react-native"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "dist/index.mjs",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "unpkg": "dist/freya-agent-sdk.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "default": "./dist/index.mjs"
+    },
+    "./agent": {
+      "types": "./dist/agent/index.d.ts",
+      "import": "./dist/agent.mjs",
+      "default": "./dist/agent.mjs"
+    },
+    "./speech": {
+      "types": "./dist/speech/index.d.ts",
+      "import": "./dist/speech.mjs",
+      "default": "./dist/speech.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "check:package": "publint && attw --pack . --profile esm-only",
+    "smoke": "node scripts/smoke.mjs",
+    "docs": "typedoc",
+    "verify": "npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run smoke && npm run check:package",
+    "prepare": "npm run build"
+  },
+  "dependencies": {
+    "@pipecat-ai/client-js": "^1.13.1",
+    "@pipecat-ai/small-webrtc-transport": "^1.10.8"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@eslint/js": "^9.39.5",
+    "@vitest/coverage-v8": "^4.1.11",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.39.5",
+    "jsdom": "^27.4.0",
+    "publint": "^0.3.25",
+    "typedoc": "^0.28.20",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.2",
+    "vitest": "^4.1.11"
+  }
+}

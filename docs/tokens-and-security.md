@@ -1,0 +1,70 @@
+# Tokens and security
+
+## Rule
+
+A long-lived Freya key never ships inside an app. Your backend keeps it and gives the app something short-lived.
+
+| Credential | Lives in | Lets you | Lifetime |
+|---|---|---|---|
+| Workspace API key with `calls:web-token` | your backend | mint embed tokens | until revoked |
+| Workspace API key with `calls:chat-message` | your backend | call `/api/v2/chat/*` (`AgentChat`) | until revoked |
+| Speech (model) key | your backend | call Freya STT and TTS | until revoked |
+| Embed token | the app | start one WebRTC session with one agent, from one origin | 60 to 3600 s (default 3600) |
+| Your own session token | the app | call your backend, which adds the Freya key | your choice |
+
+## WebRTC: embed tokens
+
+Your backend asks the dashboard for a token bound to one agent and one web origin:
+
+```http
+POST https://app.freyavoice.ai/api/token/embed
+Authorization: Bearer <workspace key with calls:web-token>
+Content-Type: application/json
+
+{ "agentId": "<agent or workflow id>", "allowedOrigin": "https://your-app.example", "ttlSeconds": 600 }
+```
+
+```json
+{ "token": "…", "expiresAt": "2026-10-14T12:00:00.000Z" }
+```
+
+- `allowedOrigin` must be `https://` except for localhost.
+- A workflow id is accepted; the token always carries the agent's id.
+- The token is only valid for `/api/token/webrtc` (starting the call). It does not work for `AgentChat` or for speech.
+
+The app passes it to `new FreyaClient({ baseUrl, token })`. A call that is already connected keeps running when the token expires; mint a new one for the next call.
+
+## REST and speech: your backend in between
+
+`AgentChat` needs a key with `calls:chat-message`, and speech needs the speech key. Both stay on your backend in one of two ways.
+
+| Option | How | When |
+|---|---|---|
+| Proxy | Point `baseUrl` (`AgentChat`) or `stt.url` / `tts.url` (`FreyaSpeech`) at your backend. It checks the app's own session token, adds the Freya key and forwards the request unchanged. | Mobile and web apps (recommended) |
+| Server-side | Run `AgentChat` and `FreyaSpeech` in Node with the key from the environment. | Server-to-server integrations |
+
+A minimal proxy is in [`examples/token-backend.mjs`](../examples/token-backend.mjs).
+
+## Renewal
+
+`token` may be a string or a function:
+
+```js
+const speech = new FreyaSpeech({
+  token: async ({ refresh }) => (await fetch("/session", { method: refresh ? "POST" : "GET" }).then((r) => r.json())).token,
+});
+```
+
+- The function is called once for the first request, then again with `{ refresh: true }` after a 401 or 403 (`renewOn` changes the list).
+- The failed request is repeated once with the new token. A sentence being read aloud carries on from where it was.
+- Requests running at the same time share one refresh.
+- A second 401 or 403 after renewal throws `SpeechAuthError` (speech) or an error with `status` (`AgentChat`).
+- Freya speech answers an invalid key with 403, not 401, which is why both statuses renew by default.
+
+## Checklist for production
+
+- Keys only in your backend's secret store; never in the app bundle, logs or URLs.
+- Embed tokens with the shortest `ttlSeconds` that covers connecting, bound to your exact origin.
+- Your proxy forwards only the paths the SDK uses: `/v1/audio/speech`, `/v1/audio/transcriptions`, `/v1/audio/stream`, `/api/v2/chat/message`, `/api/v2/chat/end`.
+- Rate-limit the token and proxy endpoints per user.
+- In browsers a WebSocket cannot send an `Authorization` header, so live STT from a browser must go through your proxy.
