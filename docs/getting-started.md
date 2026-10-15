@@ -36,7 +36,7 @@ A token is only valid on the environment that issued it.
 ## First run
 
 ```bash
-npm install github:freyavoiceai/freya-agent-sdk#v0.1.0
+npm install github:freyavoiceai/freya-agent-sdk
 ```
 
 ```js

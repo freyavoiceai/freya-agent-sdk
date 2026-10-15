@@ -13,20 +13,20 @@
 
 ## Install
 
-The package is private to Freya and its customers. Install it from the GitHub repository (it builds on install) or from a release tarball:
+The package is not on npm yet. Install it from the GitHub repository; it builds on install:
 
 ```bash
-npm install github:freyavoiceai/freya-agent-sdk#v0.1.0
-# or, from a GitHub release asset
-npm install ./freya-agent-sdk-0.1.0.tgz
+npm install github:freyavoiceai/freya-agent-sdk
 ```
+
+Once versions are tagged, pin one with `#v<x.y.z>` at the end.
 
 | Entry point | Contains | Use it for |
 |---|---|---|
 | `@freya/agent-sdk` | everything | web apps |
 | `@freya/agent-sdk/agent` | `FreyaClient`, `AgentChat` | agents only |
 | `@freya/agent-sdk/speech` | STT, TTS, `SpeechReader`, `VoiceActivity` (no WebRTC dependency, about 25 KB) | React Native, Node |
-| `dist/freya-agent-sdk.js` (a file, not an import) | everything, as a `<script>` bundle exposing `window.Freya` | pages without a bundler: copy it from the package or the release |
+| `dist/freya-agent-sdk.js` (a file, not an import) | everything, as a `<script>` bundle exposing `window.Freya` | pages without a bundler: copy it from `node_modules/@freya/agent-sdk/dist/` |
 
 The package is ESM only and ships its own TypeScript types. Node 18 or newer.
 
