@@ -4,6 +4,9 @@ All notable changes to this package. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+- A JWT with `exp` from the token function is renewed shortly before it expires (`renewBeforeMs`, default 60 s), so requests rarely meet a 401.
+
 ## [0.1.0] - 2026-10-14
 
 First internal release.

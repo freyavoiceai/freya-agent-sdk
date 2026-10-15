@@ -1,7 +1,8 @@
 /**
  * Where the bearer token comes from. A string is used as is; a function is asked again with
  * `refresh: true` after a 401, so a short-lived token from the app's own backend can be renewed
- * and the same request repeated.
+ * and the same request repeated. When the function returns a JWT with `exp`, it is also asked
+ * shortly before that time, so a request rarely meets an expired token.
  */
 export type TokenSource = string | ((options: { refresh: boolean }) => string | Promise<string>);
 
@@ -13,6 +14,43 @@ export interface AuthOptions {
   fetch?: FetchLike;
   /** Statuses that renew the token and repeat the request once. Freya speech answers a bad key with 403. */
   renewOn?: number[];
+  /** Renew a JWT this long before its `exp` (ms, default 60 000; at most a fifth of its lifetime). 0 turns it off. */
+  renewBeforeMs?: number;
+}
+
+const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+function base64UrlToText(part: string): string {
+  let bits = 0;
+  let value = 0;
+  const bytes: number[] = [];
+  for (const ch of part.replace(/=+$/, "")) {
+    const n = B64.indexOf(ch === "+" ? "-" : ch === "/" ? "_" : ch);
+    if (n < 0) throw new Error("not base64url");
+    value = (value << 6) | n;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      bytes.push((value >> bits) & 0xff);
+    }
+  }
+  // UTF-8 without TextDecoder, which some React Native engines lack.
+  return decodeURIComponent(bytes.map((b) => `%${b.toString(16).padStart(2, "0")}`).join(""));
+}
+
+/** When a JWT's renewal is due (ms since epoch), or null for a token that is not a JWT with `exp`. */
+export function renewalTime(token: string, renewBeforeMs: number): number | null {
+  const parts = token.split(".");
+  if (parts.length !== 3 || renewBeforeMs <= 0) return null;
+  try {
+    const claims = JSON.parse(base64UrlToText(parts[1])) as { exp?: unknown; iat?: unknown };
+    if (typeof claims.exp !== "number") return null;
+    const exp = claims.exp * 1000;
+    const life = typeof claims.iat === "number" ? exp - claims.iat * 1000 : Infinity;
+    return exp - Math.min(renewBeforeMs, life / 5);
+  } catch {
+    return null;
+  }
 }
 
 export class SpeechAuthError extends Error {
@@ -25,6 +63,7 @@ export class SpeechAuthError extends Error {
 /** One token per client; concurrent 401s share a single refresh. */
 export class TokenKeeper {
   private current: string | null = null;
+  private renewAt: number | null = null;
   private refreshing: Promise<string> | null = null;
   private readonly fetchImpl: FetchLike;
   onRefresh?: () => void;
@@ -37,7 +76,19 @@ export class TokenKeeper {
 
   /** The current token; parallel first calls share one request to the token source. */
   token(): Promise<string> {
-    if (this.current) return Promise.resolve(this.current);
+    const current = this.current;
+    if (current && !this.refreshing && this.renewAt !== null && Date.now() >= this.renewAt) {
+      // Renew early. The current token stays in use meanwhile and if the token source fails.
+      this.renewAt = null;
+      this.refreshing = this.resolve(true)
+        .catch(() => current)
+        .finally(() => {
+          this.refreshing = null;
+        });
+      this.onRefresh?.();
+      return this.refreshing;
+    }
+    if (current) return Promise.resolve(current);
     if (!this.refreshing) {
       this.refreshing = this.resolve(false).finally(() => {
         this.refreshing = null;
@@ -68,6 +119,7 @@ export class TokenKeeper {
     }
     const value = await source({ refresh });
     this.current = value;
+    this.renewAt = renewalTime(value, this.options.renewBeforeMs ?? 60_000);
     return value;
   }
 
