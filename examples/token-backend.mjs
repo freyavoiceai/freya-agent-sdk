@@ -9,17 +9,19 @@ const STT = env("FREYA_STT_URL", "https://stt.freyavoice.ai");
 const TTS = env("FREYA_TTS_URL", "https://tts.freyavoice.ai");
 const ORIGIN = env("APP_ORIGIN", "http://localhost:5173");
 
-// Replace with your own session check (cookie, JWT, ...). Return false to refuse.
+// Demo only: any Authorization header passes. Replace with your own session check (cookie, JWT, ...).
 function isSignedIn(req) {
   return Boolean(req.headers.authorization);
 }
 
-// Only the paths the SDK calls are forwarded.
-const ROUTES = [
-  { prefix: "/freya/api/v2/chat/", target: DASHBOARD, key: "FREYA_CHAT_KEY" },
-  { prefix: "/freya/v1/audio/speech", target: TTS, key: "FREYA_SPEECH_KEY" },
-  { prefix: "/freya/v1/audio/transcriptions", target: STT, key: "FREYA_SPEECH_KEY" },
-];
+// Only the exact paths the SDK calls are forwarded. Matching the normalised path stops
+// "/freya/api/v2/chat/../../v2/agents" from reaching another endpoint with your key.
+const ROUTES = {
+  "/freya/api/v2/chat/message": { target: DASHBOARD, key: "FREYA_CHAT_KEY" },
+  "/freya/api/v2/chat/end": { target: DASHBOARD, key: "FREYA_CHAT_KEY" },
+  "/freya/v1/audio/speech": { target: TTS, key: "FREYA_SPEECH_KEY" },
+  "/freya/v1/audio/transcriptions": { target: STT, key: "FREYA_SPEECH_KEY" },
+};
 
 async function readBody(req) {
   const parts = [];
@@ -48,9 +50,10 @@ createServer(async (req, res) => {
     return res.end(await r.text());
   }
 
-  const route = ROUTES.find((r) => req.method === "POST" && req.url.startsWith(r.prefix));
+  const { pathname, search } = new URL(req.url, "http://localhost");
+  const route = req.method === "POST" && Object.hasOwn(ROUTES, pathname) ? ROUTES[pathname] : undefined;
   if (!route) return res.writeHead(404).end();
-  const upstream = await fetch(route.target + req.url.slice("/freya".length), {
+  const upstream = await fetch(route.target + pathname.slice("/freya".length) + search, {
     method: "POST",
     headers: { Authorization: `Bearer ${env(route.key)}`, "Content-Type": req.headers["content-type"] ?? "application/json" },
     body: await readBody(req),
