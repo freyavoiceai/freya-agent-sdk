@@ -112,6 +112,58 @@ describe("TokenKeeper", () => {
     expect(source).toHaveBeenCalledTimes(1);
   });
 
+  it("renews a JWT before it expires, so no request meets a 401", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const start = Date.parse("2026-10-15T07:00:00Z");
+      vi.setSystemTime(start);
+      const jwt = (name: string, iat: number) => {
+        const part = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
+        return `${part({ alg: "RS256", typ: "at+jwt" })}.${part({ jti: name, iat, exp: iat + 300 })}.sig`;
+      };
+      const issued: string[] = [];
+      const source = vi.fn(async () => {
+        const t = jwt(`t${issued.length + 1}`, Math.floor(Date.now() / 1000));
+        issued.push(t);
+        return t;
+      });
+      const svc = fakeService();
+      const keeper = new TokenKeeper({ token: source, fetch: svc.fetch });
+      await keeper.fetch("https://x/v1/audio/speech", { method: "POST", body: "{}" });
+      vi.setSystemTime(start + 200_000);
+      await keeper.fetch("https://x/v1/audio/speech", { method: "POST", body: "{}" });
+      vi.setSystemTime(start + 250_000);
+      await keeper.fetch("https://x/v1/audio/speech", { method: "POST", body: "{}" });
+      expect(svc.calls.map((c) => c.token)).toEqual([issued[0], issued[0], issued[1]]);
+      expect(source.mock.calls.map(([o]) => o.refresh)).toEqual([false, true]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the current token when the early renewal fails", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const start = Date.parse("2026-10-15T07:00:00Z");
+      vi.setSystemTime(start);
+      const part = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
+      const token = `${part({ alg: "RS256" })}.${part({ iat: start / 1000, exp: start / 1000 + 300 })}.sig`;
+      const source = vi.fn(async ({ refresh }: { refresh: boolean }) => {
+        if (refresh) throw new Error("token service down");
+        return token;
+      });
+      const svc = fakeService();
+      const keeper = new TokenKeeper({ token: source, fetch: svc.fetch });
+      await keeper.fetch("https://x/v1/audio/speech", { method: "POST", body: "{}" });
+      vi.setSystemTime(start + 270_000);
+      const res = await keeper.fetch("https://x/v1/audio/speech", { method: "POST", body: "{}" });
+      expect(res.status).toBe(200);
+      expect(svc.calls.map((c) => c.token)).toEqual([token, token]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shares one refresh between parallel 401s", async () => {
     const fetch = vi.fn(async (_url: string, init?: RequestInit) =>
       (init?.headers as Record<string, string>).Authorization === "Bearer old" ? new Response("", { status: 401 }) : new Response("ok"),

@@ -60,6 +60,7 @@ const speech = new FreyaSpeech({
 - Requests running at the same time share one refresh.
 - A second 401 or 403 after renewal throws `SpeechAuthError` (speech) or an error with `status` (`AgentChat`).
 - Freya speech answers an invalid key with 403, not 401, which is why both statuses renew by default.
+- When the function returns a JWT with `exp`, it is also called with `{ refresh: true }` shortly before that time: 60 s before by default, at most a fifth of the token's lifetime (`renewBeforeMs`, `0` turns it off). The check runs at the next request, without timers. The current token stays in use while the new one is fetched, and is kept if the token function fails.
 
 ## Checklist for production
 

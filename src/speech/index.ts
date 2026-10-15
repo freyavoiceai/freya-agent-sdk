@@ -14,10 +14,12 @@ export interface FreyaSpeechConfig {
   fetch?: FetchLike;
   /** Statuses that renew the token and repeat the request once; default 401 and 403. */
   renewOn?: number[];
+  /** Renew a JWT this long before its `exp` (ms, default 60 000). 0 turns it off. */
+  renewBeforeMs?: number;
 }
 
 export interface FreyaSpeechEvents {
-  /** A 401 or 403 came back; a new token is being fetched and the request will be repeated. */
+  /** A new token is being fetched: a 401 or 403 came back, or a JWT is about to expire. */
   tokenRefresh: Record<string, never>;
 }
 
@@ -32,7 +34,7 @@ export class FreyaSpeech extends Emitter<FreyaSpeechEvents> {
 
   constructor(config: FreyaSpeechConfig) {
     super();
-    const keeper = new TokenKeeper({ token: config.token, fetch: config.fetch, renewOn: config.renewOn });
+    const keeper = new TokenKeeper({ token: config.token, fetch: config.fetch, renewOn: config.renewOn, renewBeforeMs: config.renewBeforeMs });
     keeper.onRefresh = () => this.emit("tokenRefresh", {});
     this.stt = new FreyaStt(keeper, config.stt);
     this.tts = new FreyaTts(keeper, config.tts);
