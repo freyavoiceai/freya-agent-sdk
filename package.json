@@ -69,7 +69,7 @@
     "prepare": "npm run build"
   },
   "dependencies": {
-    "@pipecat-ai/client-js": "^1.13.1",
+    "@pipecat-ai/client-js": "^1.14.0",
     "@pipecat-ai/small-webrtc-transport": "^1.10.8"
   },
   "devDependencies": {
