@@ -107,4 +107,4 @@ The agent client (`src/agent/client.ts`, `types.ts`, `native-media-manager.ts`) 
 
 ## License
 
-Proprietary, all rights reserved. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE).

@@ -17,6 +17,7 @@ Hardened for the first npm release (security and robustness review).
 - `dist/THIRD_PARTY_NOTICES.txt` with the licenses of the bundled packages.
 
 ### Changed
+- Licensed under Apache-2.0 (was proprietary).
 - The package is now `@freyavoice/agent-sdk` and has no runtime dependencies (Pipecat is bundled, as before; daily-js is no longer in the bundle).
 - Service URLs must be `https://`; plain http is refused except for localhost.
 - `SpeechHttpError.message` holds only the status; the start of the service's answer moved to `body`.
