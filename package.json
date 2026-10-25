@@ -71,7 +71,7 @@
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
     "@eslint/js": "^9.39.5",
-    "@pipecat-ai/client-js": "^1.13.1",
+    "@pipecat-ai/client-js": "^1.14.0",
     "@pipecat-ai/small-webrtc-transport": "^1.10.8",
     "@vitest/coverage-v8": "^4.1.11",
     "esbuild": "^0.28.2",
