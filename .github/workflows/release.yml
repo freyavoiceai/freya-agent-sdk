@@ -24,5 +24,5 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           notes=$(awk -v v="$version" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} on' CHANGELOG.md)
-          gh release create "$GITHUB_REF_NAME" freya-agent-sdk-"$version".tgz dist/freya-agent-sdk.js \
+          gh release create "$GITHUB_REF_NAME" freyavoice-agent-sdk-"$version".tgz dist/freya-agent-sdk.js \
             --title "$GITHUB_REF_NAME" --notes "$notes"
