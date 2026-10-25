@@ -1,4 +1,4 @@
-import type { TokenKeeper } from "./auth.js";
+import { secureBase, type TokenKeeper } from "./auth.js";
 
 export interface TtsOptions {
   /** Speech service root, without /v1. Point it at your own backend to proxy Freya. */
@@ -18,7 +18,11 @@ export interface Pcm {
 export const DEFAULT_TTS_URL = "https://tts.freyavoice.ai";
 
 export class SpeechHttpError extends Error {
-  constructor(public readonly status: number, message: string) {
+  /**
+   * `body`: the start of the service's answer (up to 200 characters). Kept out of `message`, which
+   * apps tend to log or send to crash reporting, because it may echo what the user said.
+   */
+  constructor(public readonly status: number, message: string, public readonly body = "") {
     super(message);
     this.name = "SpeechHttpError";
   }
@@ -26,7 +30,7 @@ export class SpeechHttpError extends Error {
 
 export async function errorFrom(res: Response, what: string): Promise<SpeechHttpError> {
   const body = await res.text().catch(() => "");
-  return new SpeechHttpError(res.status, `${what} ${res.status}${body ? `: ${body.slice(0, 200)}` : ""}`);
+  return new SpeechHttpError(res.status, `${what} ${res.status}`, body.slice(0, 200));
 }
 
 export function pcmFromBytes(bytes: ArrayBuffer, sampleRate: number): Pcm {
@@ -42,7 +46,7 @@ export class FreyaTts {
   readonly sampleRate: number;
 
   constructor(private readonly keeper: TokenKeeper, options: TtsOptions = {}) {
-    this.url = (options.url ?? DEFAULT_TTS_URL).replace(/\/+$/, "").replace(/\/v1$/, "");
+    this.url = secureBase(options.url ?? DEFAULT_TTS_URL, "tts.url").replace(/\/v1$/, "");
     this.model = options.model ?? "freya-tts";
     this.voice = options.voice ?? "zeynep";
     this.sampleRate = options.sampleRate ?? 48000;

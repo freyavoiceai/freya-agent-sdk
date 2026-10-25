@@ -1,6 +1,6 @@
 # Freya Agent SDK
 
-`@freya/agent-sdk` is the TypeScript SDK for Freya voice AI agents. One package covers web, React Native and Node.
+`@freyavoice/agent-sdk` is the TypeScript SDK for Freya voice AI agents. One package covers web, React Native and Node.
 
 | Part | What it does | Transport |
 |---|---|---|
@@ -23,19 +23,19 @@ Once versions are tagged, pin one with `#v<x.y.z>` at the end.
 
 | Entry point | Contains | Use it for |
 |---|---|---|
-| `@freya/agent-sdk` | everything | web apps |
-| `@freya/agent-sdk/agent` | `FreyaClient`, `AgentChat` | agents only |
-| `@freya/agent-sdk/speech` | STT, TTS, `SpeechReader`, `VoiceActivity` (no WebRTC dependency, about 25 KB) | React Native, Node |
-| `dist/freya-agent-sdk.js` (a file, not an import) | everything, as a `<script>` bundle exposing `window.Freya` | pages without a bundler: copy it from `node_modules/@freya/agent-sdk/dist/` |
+| `@freyavoice/agent-sdk` | everything | web apps |
+| `@freyavoice/agent-sdk/agent` | `FreyaClient`, `AgentChat` | agents only |
+| `@freyavoice/agent-sdk/speech` | STT, TTS, `SpeechReader`, `VoiceActivity` (no WebRTC dependency, about 25 KB) | React Native, Node |
+| `dist/freya-agent-sdk.js` (a file, not an import) | everything, as a `<script>` bundle exposing `window.Freya` | pages without a bundler: copy it from `node_modules/@freyavoice/agent-sdk/dist/` |
 
-The package is ESM only and ships its own TypeScript types. Node 18 or newer.
+The package is ESM only, ships its own TypeScript types and has no runtime dependencies: the WebRTC libraries it uses are bundled, with their licenses in `dist/THIRD_PARTY_NOTICES.txt`. Node 20 or newer.
 
 ## Quick start
 
 A voice agent in the browser over WebRTC. Your backend mints the embed token ([tokens](docs/tokens-and-security.md)):
 
 ```js
-import { FreyaClient, FreyaEvent } from "@freya/agent-sdk";
+import { FreyaClient, FreyaEvent } from "@freyavoice/agent-sdk";
 
 const { token } = await fetch("/my-backend/freya-token").then((r) => r.json());
 const client = new FreyaClient({ baseUrl: "https://app.freyavoice.ai", token, mode: "call" });
@@ -48,10 +48,12 @@ await client.connect();
 The same agent without WebRTC: speech to text, one REST turn, the answer read aloud:
 
 ```js
-import { AgentChat, FreyaSpeech, WebAudioOutput } from "@freya/agent-sdk";
+import { AgentChat, FreyaSpeech, WebAudioOutput } from "@freyavoice/agent-sdk";
 
-const speech = new FreyaSpeech({ token: ({ refresh }) => myBackend.speechToken({ refresh }) });
-const chat = new AgentChat({ baseUrl: "https://my-backend.example/freya", token: sessionToken, workflowId });
+// Your backend checks the session token and adds the Freya keys; the app never holds them.
+const backend = "https://my-backend.example/freya";
+const speech = new FreyaSpeech({ token: sessionToken, stt: { url: backend }, tts: { url: backend } });
+const chat = new AgentChat({ baseUrl: backend, token: sessionToken, workflowId });
 
 const { text } = await speech.stt.transcribe(recording);
 const { reply, ended } = await chat.send(text);
@@ -79,11 +81,11 @@ Runnable examples are in [`examples/`](examples/). The full API reference is gen
 |---|---|---|---|
 | Modern browsers | yes | yes, through your backend | yes |
 | React Native | not yet (needs a React Native WebRTC transport) | yes | yes, with `react-native-audio-api` for playback |
-| Node 18+ | no | yes | STT and TTS yes; playback needs your own `AudioOutput` |
+| Node 20+ | no | yes | STT and TTS yes; playback needs your own `AudioOutput` |
 
 ## Status
 
-Version 0.1.0, first internal release. The public API may still change before 1.0; every change is listed in [CHANGELOG.md](CHANGELOG.md). Planned next: a React Native WebRTC transport, React hooks, client tools (the agent triggers an action in the app), and a disconnect reason on `disconnected`.
+Version 0.2.0. The public API may still change before 1.0; every change is listed in [CHANGELOG.md](CHANGELOG.md). Planned next: a React Native WebRTC transport, React hooks, client tools (the agent triggers an action in the app), and a disconnect reason on `disconnected`.
 
 ## Development
 
@@ -105,4 +107,4 @@ The agent client (`src/agent/client.ts`, `types.ts`, `native-media-manager.ts`) 
 
 ## License
 
-Proprietary, all rights reserved. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE).

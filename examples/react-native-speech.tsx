@@ -3,8 +3,8 @@
 import { useMemo, useState } from "react";
 import { Button, Text, View } from "react-native";
 import { AudioContext } from "react-native-audio-api";
-import { AgentChat } from "@freya/agent-sdk/agent";
-import { FreyaSpeech, WebAudioOutput } from "@freya/agent-sdk/speech";
+import { AgentChat } from "@freyavoice/agent-sdk/agent";
+import { FreyaSpeech, WebAudioOutput } from "@freyavoice/agent-sdk/speech";
 
 const BACKEND = "https://your-backend.example/freya";
 

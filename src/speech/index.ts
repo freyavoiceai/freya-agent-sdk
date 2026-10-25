@@ -16,6 +16,8 @@ export interface FreyaSpeechConfig {
   renewOn?: number[];
   /** Renew a JWT this long before its `exp` (ms, default 60 000). 0 turns it off. */
   renewBeforeMs?: number;
+  /** Abort a request after this long (ms, default 30 000). 0 turns it off. */
+  timeoutMs?: number;
 }
 
 export interface FreyaSpeechEvents {
@@ -34,7 +36,13 @@ export class FreyaSpeech extends Emitter<FreyaSpeechEvents> {
 
   constructor(config: FreyaSpeechConfig) {
     super();
-    const keeper = new TokenKeeper({ token: config.token, fetch: config.fetch, renewOn: config.renewOn, renewBeforeMs: config.renewBeforeMs });
+    const keeper = new TokenKeeper({
+      token: config.token,
+      fetch: config.fetch,
+      renewOn: config.renewOn,
+      renewBeforeMs: config.renewBeforeMs,
+      timeoutMs: config.timeoutMs,
+    });
     keeper.onRefresh = () => this.emit("tokenRefresh", {});
     this.stt = new FreyaStt(keeper, config.stt);
     this.tts = new FreyaTts(keeper, config.tts);

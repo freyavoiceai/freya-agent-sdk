@@ -1,4 +1,4 @@
-import { TokenKeeper, type FetchLike, type TokenSource } from "../speech/auth.js";
+import { TokenKeeper, secureBase, type FetchLike, type TokenSource } from "../speech/auth.js";
 import { errorFrom } from "../speech/tts.js";
 
 export interface AgentChatConfig {
@@ -13,6 +13,8 @@ export interface AgentChatConfig {
   workspaceId?: string;
   fetch?: FetchLike;
   renewOn?: number[];
+  /** Abort a turn after this long (ms, default 30 000). 0 turns it off. */
+  timeoutMs?: number;
 }
 
 export interface AgentTurn {
@@ -32,21 +34,39 @@ export class AgentChat {
   private readonly keeper: TokenKeeper;
   private readonly baseUrl: string;
   private _callId: string | null = null;
+  // one turn at a time, so two first messages cannot start two conversations
+  private queue: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly config: AgentChatConfig & ({ workflowId: string } | { agentId: string })) {
-    this.baseUrl = config.baseUrl.replace(/\/+$/, "");
-    this.keeper = new TokenKeeper({ token: config.token, fetch: config.fetch, renewOn: config.renewOn });
+    this.baseUrl = secureBase(config.baseUrl, "baseUrl");
+    this.keeper = new TokenKeeper({ token: config.token, fetch: config.fetch, renewOn: config.renewOn, timeoutMs: config.timeoutMs });
   }
 
   get callId(): string | null {
     return this._callId;
   }
 
-  /** Sends one user message; the first one starts the conversation. */
-  async send(
-    message: string,
-    options: { customerVariables?: Record<string, string>; signal?: AbortSignal } = {},
-  ): Promise<AgentTurn> {
+  /** Sends one user message; the first one starts the conversation. Turns run one after another. */
+  send(message: string, options: { customerVariables?: Record<string, string>; signal?: AbortSignal } = {}): Promise<AgentTurn> {
+    return this.serial(() => this.turn(message, options));
+  }
+
+  /** Ends the conversation; safe to call twice. */
+  end(): Promise<void> {
+    return this.serial(async () => {
+      if (!this._callId) return;
+      await this.post("/api/v2/chat/end", { callId: this._callId });
+      this._callId = null;
+    });
+  }
+
+  private serial<T>(run: () => Promise<T>): Promise<T> {
+    const next = this.queue.then(run, run);
+    this.queue = next.catch(() => undefined);
+    return next;
+  }
+
+  private async turn(message: string, options: { customerVariables?: Record<string, string>; signal?: AbortSignal }): Promise<AgentTurn> {
     const body: Record<string, unknown> = { message };
     if (this._callId) {
       body.callId = this._callId;
@@ -56,20 +76,14 @@ export class AgentChat {
       if (options.customerVariables) body.customerVariables = options.customerVariables;
     }
     const data = await this.post("/api/v2/chat/message", body, options.signal);
-    this._callId = String(data.callId);
+    if (typeof data.callId !== "string" || !data.callId) throw new Error("Agent chat: the answer has no callId");
+    this._callId = data.callId;
     return {
       reply: String(data.response ?? "").trim(),
       callId: this._callId,
       messageId: typeof data.messageId === "string" ? data.messageId : undefined,
       ended: data.endedByAgent === true,
     };
-  }
-
-  /** Ends the conversation; safe to call twice. */
-  async end(): Promise<void> {
-    if (!this._callId) return;
-    await this.post("/api/v2/chat/end", { callId: this._callId });
-    this._callId = null;
   }
 
   private async post(path: string, body: unknown, signal?: AbortSignal): Promise<Record<string, unknown>> {

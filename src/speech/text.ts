@@ -1,10 +1,19 @@
+// Only real tags: "<" then a letter or "/". A comparison such as "%3 < %5" is text and stays.
+const TAG = /<\/?[a-zA-Z][^<>]*>/g;
+
 /** Drops html tags and ***bold*** markers that a chat answer may carry; TTS would read them. */
 export function cleanText(text: string): string {
   return text
     .replace(/<br\s*\/?>/gi, " ")
-    .replace(/<[^>]*>/g, "")
+    .replace(TAG, "")
     .replace(/\*+/g, "")
     .replace(/\s{2,}/g, " ");
+}
+
+/** The buffer ends inside a tag that the next chunk will close, e.g. "<b" or "</". */
+function endsInTag(buf: string): boolean {
+  const i = buf.lastIndexOf("<");
+  return i >= 0 && buf.length - i <= 64 && /^<\/?([a-zA-Z][^<>]*)?$/.test(buf.slice(i));
 }
 
 /**
@@ -17,7 +26,7 @@ export class SentenceAssembler {
   feed(text: string): string[] {
     this.buf += text;
     // inside a tag, wait for the rest
-    if (this.buf.lastIndexOf("<") > this.buf.lastIndexOf(">")) return [];
+    if (endsInTag(this.buf)) return [];
     const clean = cleanText(this.buf);
     const out: string[] = [];
     const re = /[.!?…]+(?=\s)/g;

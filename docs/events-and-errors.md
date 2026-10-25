@@ -37,9 +37,10 @@ A listener that throws is logged and does not stop the emitter.
 
 | Error | From | Has | Meaning |
 |---|---|---|---|
-| `SpeechAuthError` | speech | `status` | 401 or 403 even after renewing the token: the token source is wrong |
-| `SpeechHttpError` | speech | `status` | Any other failed status from STT or TTS |
-| `Error` with `status` | `AgentChat` | `status` | The dashboard refused the turn |
+| `SpeechHttpError` | speech, `AgentChat` | `status`, `body` | A failed status; 401 or 403 means it still failed after one renewal. `body` holds the start of the service's answer, kept out of `message` |
+| `Error` named `TimeoutError` | any request | | No answer within `timeoutMs` (default 30 s) |
+| `Error("… must be an https:// URL …")` | constructors | | A plain http URL other than localhost |
+| `Error("Agent chat: the answer has no callId")` | `AgentChat.send` | | The dashboard answered without a call id |
 | `Error("Already connected…")` | `FreyaClient.connect` | | Call `disconnect()` first |
 
 ## Handling them

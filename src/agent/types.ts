@@ -1,11 +1,22 @@
-import { RTVIEvent, TransportState } from "@pipecat-ai/client-js";
-
 /* ------------------------------------------------------------------ */
 /*  Public config                                                      */
 /* ------------------------------------------------------------------ */
 
+/** Where a WebRTC session is: the transport's state machine. */
+export type TransportState =
+  | "disconnected"
+  | "initializing"
+  | "initialized"
+  | "authenticating"
+  | "authenticated"
+  | "connecting"
+  | "connected"
+  | "ready"
+  | "disconnecting"
+  | "error";
+
 export interface FreyaClientConfig {
-  /** Base URL of the Freya dashboard (no trailing slash). */
+  /** Base URL of the Freya dashboard, https:// (plain http only for localhost). */
   baseUrl: string;
   /** Short-lived embed token from POST /api/token/embed. */
   token: string;
@@ -21,6 +32,11 @@ export interface FreyaClientConfig {
    * is what most callers want. Set this only to override them.
    */
   iceServers?: RTCIceServer[];
+  /**
+   * How much the WebRTC layer writes to the console. Default "warn": at "debug" it logs every
+   * message of the session, including what the user and the agent said and tool arguments.
+   */
+  logLevel?: "none" | "error" | "warn" | "info" | "debug";
 }
 
 /* ------------------------------------------------------------------ */
@@ -103,33 +119,3 @@ export interface FreyaEventMap {
   toolCallInProgress: (data: { function_name: string; tool_call_id: string; arguments: Record<string, unknown> }) => void;
   toolCallStopped: (data: { function_name?: string; tool_call_id?: string }) => void;
 }
-
-/* ------------------------------------------------------------------ */
-/*  Internal mapping from RTVIEvent → FreyaEvent                      */
-/* ------------------------------------------------------------------ */
-
-/**
- * Maps Pipecat RTVIEvent values we care about to FreyaEvent names.
- * Events not in this map are silently ignored.
- */
-export const RTVI_TO_FREYA: Partial<Record<RTVIEvent, FreyaEventName>> = {
-  [RTVIEvent.TransportStateChanged]: FreyaEvent.StateChanged,
-  [RTVIEvent.BotReady]: FreyaEvent.BotReady,
-  [RTVIEvent.BotStartedSpeaking]: FreyaEvent.BotStartedSpeaking,
-  [RTVIEvent.BotStoppedSpeaking]: FreyaEvent.BotStoppedSpeaking,
-  [RTVIEvent.UserStartedSpeaking]: FreyaEvent.UserStartedSpeaking,
-  [RTVIEvent.UserStoppedSpeaking]: FreyaEvent.UserStoppedSpeaking,
-  [RTVIEvent.UserTranscript]: FreyaEvent.UserTranscript,
-  [RTVIEvent.BotLlmStarted]: FreyaEvent.BotLlmStarted,
-  [RTVIEvent.BotLlmText]: FreyaEvent.BotLlmText,
-  [RTVIEvent.BotLlmStopped]: FreyaEvent.BotLlmStopped,
-  [RTVIEvent.BotTranscript]: FreyaEvent.BotTranscript,
-  [RTVIEvent.BotOutput]: FreyaEvent.BotOutput,
-  [RTVIEvent.TrackStarted]: FreyaEvent.TrackStarted,
-  [RTVIEvent.TrackStopped]: FreyaEvent.TrackStopped,
-  [RTVIEvent.Error]: FreyaEvent.Error,
-  [RTVIEvent.Disconnected]: FreyaEvent.Disconnected,
-  [RTVIEvent.LLMFunctionCallStarted]: FreyaEvent.ToolCallStarted,
-  [RTVIEvent.LLMFunctionCallInProgress]: FreyaEvent.ToolCallInProgress,
-  [RTVIEvent.LLMFunctionCallStopped]: FreyaEvent.ToolCallStopped,
-};
