@@ -131,32 +131,58 @@ export class FreyaStt {
   }
 
   /** Live transcription over a WebSocket: send 16 kHz PCM frames, get partials, then the result. */
-  async stream(options: { language?: string; sampleRate?: number; createWebSocket?: WebSocketFactory } = {}): Promise<SttStream> {
+  async stream(
+    options: { language?: string; sampleRate?: number; createWebSocket?: WebSocketFactory } & SttStreamOptions = {},
+  ): Promise<SttStream> {
     const token = await this.keeper.token();
     const url = this.url.replace(/^http/, "ws") + "/v1/audio/stream";
     const ws = (options.createWebSocket ?? defaultWebSocket)(url, { Authorization: `Bearer ${token}` });
-    return new SttStream(ws, { type: "config", language: options.language ?? this.language, sample_rate: options.sampleRate ?? 16000 });
+    return new SttStream(ws, { type: "config", language: options.language ?? this.language, sample_rate: options.sampleRate ?? 16000 }, options);
   }
+}
+
+export interface SttStreamOptions {
+  /** Give up when the socket has not opened after this long (ms, default 10 000). 0 turns it off. */
+  openTimeoutMs?: number;
+  /** After `finish()`, give up when no result came within this long (ms, default 15 000). 0 turns it off. */
+  resultTimeoutMs?: number;
+  /** Audio held while the socket opens, in bytes (default 1 MB, about 30 s at 16 kHz); more fails the stream. */
+  maxQueuedBytes?: number;
 }
 
 export class SttStream extends Emitter<SttStreamEvents> {
   private queue: (ArrayBuffer | string)[] = [];
+  private queuedBytes = 0;
   private open = false;
-  private done = false;
+  private finished = false;
+  // a result came, the app cancelled, or an error was told: nothing more is reported but `close`
+  private settled = false;
   private closed = false;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private readonly o: Required<SttStreamOptions>;
 
-  constructor(private readonly ws: WebSocketLike, config: Record<string, unknown>) {
+  constructor(private readonly ws: WebSocketLike, config: Record<string, unknown>, options: SttStreamOptions = {}) {
     super();
+    this.o = {
+      openTimeoutMs: options.openTimeoutMs ?? 10_000,
+      resultTimeoutMs: options.resultTimeoutMs ?? 15_000,
+      maxQueuedBytes: options.maxQueuedBytes ?? 1024 * 1024,
+    };
+    this.arm(this.o.openTimeoutMs, `STT connection did not open within ${this.o.openTimeoutMs} ms`);
     ws.binaryType = "arraybuffer";
     ws.onopen = () => {
+      if (this.settled) return;
       this.open = true;
+      this.disarm();
       ws.send(JSON.stringify(config));
       for (const item of this.queue) ws.send(item);
       this.queue = [];
+      this.queuedBytes = 0;
       this.emit("open", {});
+      if (this.finished) this.arm(this.o.resultTimeoutMs, `STT gave no result within ${this.o.resultTimeoutMs} ms`);
     };
     ws.onmessage = (ev) => {
-      if (typeof ev.data !== "string") return;
+      if (this.settled || typeof ev.data !== "string") return;
       let msg: { type?: unknown; text?: unknown; message?: unknown };
       try {
         msg = JSON.parse(ev.data);
@@ -168,38 +194,88 @@ export class SttStream extends Emitter<SttStreamEvents> {
       if ((msg.type === "partial" || msg.type === "final") && text) {
         this.emit("partial", { text, final: msg.type === "final" });
       } else if (msg.type === "result") {
-        this.done = true;
+        this.settled = true;
+        this.disarm();
         this.emit("result", { text: text.trim() });
-        ws.close();
+        this.closeSocket();
       } else if (msg.type === "error") {
-        this.emit("error", { message: typeof msg.message === "string" ? msg.message : "STT error" });
+        // the service gives up on this stream: told once, the close that follows adds nothing
+        this.fail(typeof msg.message === "string" ? msg.message : "STT error");
       }
     };
-    ws.onerror = () => this.emit("error", { message: "STT connection failed" });
+    // a failing socket fires error and then close: one failure, told once
+    ws.onerror = () => this.fail("STT connection failed");
     ws.onclose = () => {
       this.open = false;
+      this.fail("STT connection closed before the result");
+      if (this.closed) return;
       this.closed = true;
-      if (!this.done) this.emit("error", { message: "STT connection closed before the result" });
       this.emit("close", {});
     };
   }
 
-  /** One frame of 16-bit mono PCM at the configured rate. */
+  /** One frame of 16-bit mono PCM at the configured rate. Ignored after `finish()` or `cancel()`. */
   send(frame: Int16Array | ArrayBuffer): void {
+    if (this.finished || this.settled || this.closed) return;
     const buf = frame instanceof ArrayBuffer ? frame : (frame.buffer.slice(frame.byteOffset, frame.byteOffset + frame.byteLength) as ArrayBuffer);
-    if (this.open) this.ws.send(buf);
-    else if (!this.closed) this.queue.push(buf);
+    if (this.open) {
+      this.ws.send(buf);
+      return;
+    }
+    this.queuedBytes += buf.byteLength;
+    if (this.queuedBytes > this.o.maxQueuedBytes) {
+      this.fail(`STT connection still not open after ${this.o.maxQueuedBytes} bytes of audio`);
+      return;
+    }
+    this.queue.push(buf);
   }
 
   /** The speaker is done: the service sends the final result, then the socket closes. */
   finish(): void {
+    if (this.finished || this.settled || this.closed) return;
+    this.finished = true;
     const msg = JSON.stringify({ type: "close" });
-    if (this.open) this.ws.send(msg);
-    else if (!this.closed) this.queue.push(msg);
+    if (this.open) {
+      this.ws.send(msg);
+      this.arm(this.o.resultTimeoutMs, `STT gave no result within ${this.o.resultTimeoutMs} ms`);
+    } else {
+      this.queue.push(msg);
+    }
   }
 
+  /** Stops without a result and without an error. */
   cancel(): void {
-    this.done = true;
-    this.ws.close();
+    this.settled = true;
+    this.disarm();
+    this.queue = [];
+    this.closeSocket();
+  }
+
+  private fail(message: string): void {
+    if (this.settled) return;
+    this.settled = true;
+    this.disarm();
+    this.queue = [];
+    this.emit("error", { message });
+    if (!this.closed) this.closeSocket();
+  }
+
+  // a custom createWebSocket adapter may throw from close(); the stream still ends cleanly
+  private closeSocket(): void {
+    try {
+      this.ws.close();
+    } catch {
+      // nothing to close
+    }
+  }
+
+  private arm(ms: number, message: string): void {
+    this.disarm();
+    if (ms > 0) this.timer = setTimeout(() => this.fail(message), ms);
+  }
+
+  private disarm(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
   }
 }

@@ -65,6 +65,7 @@ export {
   type FileRef,
   type SttOptions,
   type SttStreamEvents,
+  type SttStreamOptions,
   type Transcript,
   type WebSocketFactory,
   type WebSocketLike,

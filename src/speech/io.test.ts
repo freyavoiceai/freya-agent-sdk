@@ -60,8 +60,9 @@ describe("FreyaStt.stream", () => {
     expect(new Int16Array(ws.sent[1] as ArrayBuffer)).toEqual(new Int16Array([1, 2, 3]));
     expect(JSON.parse(ws.sent[2] as string)).toEqual({ type: "close" });
 
+    // after finish() the service is closing the turn: later frames are dropped
     stream.send(new Int16Array([4]).buffer);
-    expect(ws.sent).toHaveLength(4);
+    expect(ws.sent).toHaveLength(3);
   });
 
   it("emits partials, then the result, and closes without an error", async () => {
@@ -90,7 +91,9 @@ describe("FreyaStt.stream", () => {
     ws.message({ type: "error", message: "bad audio" });
     ws.onerror?.({});
     ws.close();
-    expect(errors).toEqual(["bad audio", "STT connection failed", "STT connection closed before the result"]);
+    // the service's error ends the stream; the socket error and close after it add nothing
+    expect(errors).toEqual(["bad audio"]);
+    expect(ws.closed).toBe(true);
   });
 
   it("cancel closes quietly", async () => {
@@ -101,6 +104,57 @@ describe("FreyaStt.stream", () => {
     stream.cancel();
     expect(ws.closed).toBe(true);
     expect(errors).not.toHaveBeenCalled();
+  });
+
+  it("gives up on a socket that never opens", async () => {
+    const ws = new FakeSocket();
+    const stream = await stt().stream({ createWebSocket: () => ws, openTimeoutMs: 20 });
+    const errors: string[] = [];
+    stream.on("error", (e) => errors.push(e.message));
+    await vi.waitFor(() => expect(errors).toEqual(["STT connection did not open within 20 ms"]));
+    expect(ws.closed).toBe(true);
+  });
+
+  it("gives up when no result comes after finish", async () => {
+    const ws = new FakeSocket();
+    const stream = await stt().stream({ createWebSocket: () => ws, resultTimeoutMs: 20 });
+    const errors: string[] = [];
+    stream.on("error", (e) => errors.push(e.message));
+    ws.open();
+    stream.finish();
+    await vi.waitFor(() => expect(errors).toEqual(["STT gave no result within 20 ms"]));
+  });
+
+  it("does not hold unlimited audio while the socket opens", async () => {
+    const ws = new FakeSocket();
+    const stream = await stt().stream({ createWebSocket: () => ws, maxQueuedBytes: 1000 });
+    const errors: string[] = [];
+    stream.on("error", (e) => errors.push(e.message));
+    for (let i = 0; i < 10; i++) stream.send(new Int16Array(160));
+    expect(errors).toHaveLength(1);
+    expect(ws.closed).toBe(true);
+  });
+
+  it("cancel before the socket opens reports nothing, even when the socket then errors", async () => {
+    const ws = new FakeSocket();
+    const stream = await stt().stream({ createWebSocket: () => ws });
+    const errors = vi.fn();
+    stream.on("error", errors);
+    stream.cancel();
+    ws.onerror?.({});
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it("still ends cleanly when a custom socket throws from close()", async () => {
+    const ws = new FakeSocket();
+    ws.close = () => {
+      throw new Error("adapter bug");
+    };
+    const stream = await stt().stream({ createWebSocket: () => ws, openTimeoutMs: 10 });
+    const errors: string[] = [];
+    stream.on("error", (e) => errors.push(e.message));
+    await vi.waitFor(() => expect(errors).toEqual(["STT connection did not open within 10 ms"]));
+    expect(() => stream.cancel()).not.toThrow();
   });
 
   it("asks for a WebSocket factory when the runtime has none", async () => {
@@ -169,6 +223,7 @@ describe("WebAudioOutput", () => {
   it("stop ends the clip as stopped, and a new clip stops the old one", async () => {
     const ctx = new FakeContext();
     const out = new WebAudioOutput({ context: ctx });
+    await out.unlock();
     const first = out.play(pcm, () => {});
     const second = out.play(pcm, () => {});
     await expect(first).resolves.toBe("stopped");
@@ -178,9 +233,10 @@ describe("WebAudioOutput", () => {
   });
 
   it("ends the clip on a timer when the runtime never fires onended", async () => {
+    const out = new WebAudioOutput({ context: new FakeContext() });
+    await out.unlock();
     vi.useFakeTimers();
     try {
-      const out = new WebAudioOutput({ context: new FakeContext() });
       const done = out.play(pcm, () => {});
       vi.advanceTimersByTime(1000);
       await expect(done).resolves.toBe("ended");
@@ -204,11 +260,38 @@ describe("WebAudioOutput", () => {
     expect(made).toHaveLength(1);
   });
 
-  it("says what to pass when there is no AudioContext", () => {
+  it("resumes a suspended context itself when the browser allows it", async () => {
+    const ctx = new FakeContext();
+    const onStart = vi.fn();
+    const done = new WebAudioOutput({ context: ctx }).play(pcm, onStart);
+    await vi.waitFor(() => expect(onStart).toHaveBeenCalled());
+    ctx.sources[0].onended?.();
+    await expect(done).resolves.toBe("ended");
+  });
+
+  it("says so when the browser keeps the audio blocked, instead of pretending it played", async () => {
+    const ctx = new FakeContext();
+    // without a user gesture a browser leaves resume() pending
+    ctx.resume = () => new Promise<void>(() => {});
+    await expect(new WebAudioOutput({ context: ctx }).play(pcm, () => {})).rejects.toThrow(/unlock\(\)/);
+    expect(ctx.sources).toHaveLength(0);
+  });
+
+  it("a stop while waiting for the context cancels that clip", async () => {
+    const ctx = new FakeContext();
+    ctx.resume = () => new Promise<void>(() => {});
+    const out = new WebAudioOutput({ context: ctx });
+    const done = out.play(pcm, () => {});
+    out.stop();
+    await expect(done).resolves.toBe("stopped");
+    expect(ctx.sources).toHaveLength(0);
+  });
+
+  it("says what to pass when there is no AudioContext", async () => {
     const saved = (globalThis as { AudioContext?: unknown }).AudioContext;
     delete (globalThis as { AudioContext?: unknown }).AudioContext;
     try {
-      expect(() => new WebAudioOutput().play(pcm, () => {})).toThrow(/options.context/);
+      await expect(new WebAudioOutput().play(pcm, () => {})).rejects.toThrow(/options.context/);
     } finally {
       (globalThis as { AudioContext?: unknown }).AudioContext = saved;
     }

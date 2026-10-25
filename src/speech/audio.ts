@@ -37,6 +37,8 @@ export interface WebAudioOutputOptions {
 export class WebAudioOutput implements AudioOutput {
   private ctx: AudioContextLike | null;
   private current: { src: BufferSourceLike; finish: (r: "ended" | "stopped") => void } | null = null;
+  // bumped by stop(), so a play still waiting for the context knows it was cancelled
+  private generation = 0;
 
   constructor(private readonly options: WebAudioOutputOptions = {}) {
     this.ctx = options.context ?? null;
@@ -59,9 +61,17 @@ export class WebAudioOutput implements AudioOutput {
     return this.ctx;
   }
 
-  play(pcm: Pcm, onStart: () => void): Promise<"ended" | "stopped"> {
+  async play(pcm: Pcm, onStart: () => void): Promise<"ended" | "stopped"> {
     this.stop();
+    const generation = this.generation;
     const ctx = this.context();
+    if (ctx.state === "suspended") {
+      // A context made outside a tap starts suspended and plays nothing. Without a user gesture
+      // browsers leave resume() pending, so it gets a moment, not forever.
+      await Promise.race([ctx.resume?.().catch(() => undefined), new Promise((r) => setTimeout(r, 300))]);
+      if (generation !== this.generation) return "stopped";
+      if (ctx.state === "suspended") throw new Error("Audio is blocked until the user taps: call unlock() from a tap handler");
+    }
     const length = pcm.samples.length;
     const buffer = ctx.createBuffer(1, Math.max(length, 1), pcm.sampleRate);
     const data = buffer.getChannelData(0);
@@ -95,6 +105,7 @@ export class WebAudioOutput implements AudioOutput {
   }
 
   stop(): void {
+    this.generation++;
     const cur = this.current;
     if (!cur) return;
     cur.src.onended = null;
