@@ -197,9 +197,10 @@ export class SttStream extends Emitter<SttStreamEvents> {
         this.settled = true;
         this.disarm();
         this.emit("result", { text: text.trim() });
-        ws.close();
+        this.closeSocket();
       } else if (msg.type === "error") {
-        this.emit("error", { message: typeof msg.message === "string" ? msg.message : "STT error" });
+        // the service gives up on this stream: told once, the close that follows adds nothing
+        this.fail(typeof msg.message === "string" ? msg.message : "STT error");
       }
     };
     // a failing socket fires error and then close: one failure, told once
@@ -247,7 +248,7 @@ export class SttStream extends Emitter<SttStreamEvents> {
     this.settled = true;
     this.disarm();
     this.queue = [];
-    this.ws.close();
+    this.closeSocket();
   }
 
   private fail(message: string): void {
@@ -256,7 +257,16 @@ export class SttStream extends Emitter<SttStreamEvents> {
     this.disarm();
     this.queue = [];
     this.emit("error", { message });
-    if (!this.closed) this.ws.close();
+    if (!this.closed) this.closeSocket();
+  }
+
+  // a custom createWebSocket adapter may throw from close(); the stream still ends cleanly
+  private closeSocket(): void {
+    try {
+      this.ws.close();
+    } catch {
+      // nothing to close
+    }
   }
 
   private arm(ms: number, message: string): void {

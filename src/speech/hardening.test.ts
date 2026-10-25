@@ -212,6 +212,24 @@ describe("SpeechReader with odd input", () => {
     expect(t.order).toEqual(["start:Bir.", "silent:İki.", "start:Üç."]);
   });
 
+  it("does not end a sentence whose sound never started", async () => {
+    let release!: () => void;
+    const waiting: AudioOutput = {
+      // like WebAudioOutput waiting for a suspended context, then told to stop
+      play: () => new Promise((r) => (release = () => r("stopped"))),
+      stop: () => release?.(),
+    };
+    const t = reading({}, waiting);
+    const ends: number[] = [];
+    t.reader.on("sentenceEnd", (e) => ends.push(e.index));
+    t.reader.push({ text: "Bir.", final: true });
+    await vi.waitFor(() => expect(release).toBeDefined());
+    t.reader.stop();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(t.order).toEqual([]);
+    expect(ends).toEqual([]);
+  });
+
   it("stopping a finished reader leaves the next reader's sentence alone", async () => {
     let stops = 0;
     const shared: AudioOutput = {

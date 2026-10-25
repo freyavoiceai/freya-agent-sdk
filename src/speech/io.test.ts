@@ -91,8 +91,9 @@ describe("FreyaStt.stream", () => {
     ws.message({ type: "error", message: "bad audio" });
     ws.onerror?.({});
     ws.close();
-    // the error and the close of one failure are told once
-    expect(errors).toEqual(["bad audio", "STT connection failed"]);
+    // the service's error ends the stream; the socket error and close after it add nothing
+    expect(errors).toEqual(["bad audio"]);
+    expect(ws.closed).toBe(true);
   });
 
   it("cancel closes quietly", async () => {
@@ -142,6 +143,18 @@ describe("FreyaStt.stream", () => {
     stream.cancel();
     ws.onerror?.({});
     expect(errors).not.toHaveBeenCalled();
+  });
+
+  it("still ends cleanly when a custom socket throws from close()", async () => {
+    const ws = new FakeSocket();
+    ws.close = () => {
+      throw new Error("adapter bug");
+    };
+    const stream = await stt().stream({ createWebSocket: () => ws, openTimeoutMs: 10 });
+    const errors: string[] = [];
+    stream.on("error", (e) => errors.push(e.message));
+    await vi.waitFor(() => expect(errors).toEqual(["STT connection did not open within 10 ms"]));
+    expect(() => stream.cancel()).not.toThrow();
   });
 
   it("asks for a WebSocket factory when the runtime has none", async () => {

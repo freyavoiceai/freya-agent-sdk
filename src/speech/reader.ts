@@ -404,9 +404,11 @@ export class SpeechReader extends Emitter<ReaderEvents> {
     const duration = pcm.samples.length / pcm.sampleRate;
     const words = wordTimings(item.text, pcm);
     this.playing = true;
+    let started = false;
     let result: "ended" | "stopped";
     try {
       result = await this.output.play(pcm, () => {
+        started = true;
         this.emit("sentenceStart", { index: item.index, text: item.text, words, duration });
         words.forEach((w, wordIndex) => {
           this.wordTimers.push(
@@ -418,7 +420,8 @@ export class SpeechReader extends Emitter<ReaderEvents> {
       this.playing = false;
     }
     this.clearWords();
-    this.emit("sentenceEnd", { index: item.index, text: item.text, interrupted: result === "stopped" });
+    // stopped before its sound began (e.g. while the output waited to resume): it never started
+    if (started) this.emit("sentenceEnd", { index: item.index, text: item.text, interrupted: result === "stopped" });
   }
 
   private clearWords(): void {

@@ -38,7 +38,7 @@ The app passes it to `new FreyaClient({ baseUrl, token })`. A call that is alrea
 
 ## REST and speech: your backend in between
 
-[`examples/token-backend.mjs`](../examples/token-backend.mjs) is a starting point that already does what this section asks: it rebuilds every body (the app cannot pick the workflow, the customer variables, the STT model or a prompt), accepts JSON only as `application/json` (a cross-site form cannot post to it), ties each call to the user who started it, refuses redirects, caps bodies and times out upstream. It refuses to start without `APP_ORIGIN` unless `DEMO_AUTH=1`. Replace its `userOf` with your own session check and add a rate limit.
+[`examples/token-backend.mjs`](../examples/token-backend.mjs) is a starting point that already does what this section asks: it rebuilds every body (the app cannot pick the workflow, the customer variables, the STT model or a prompt), accepts JSON only as `application/json` (a cross-site form cannot post to it), ties each call to the user who started it (the last 20 per user), refuses redirects, caps bodies and times out upstream. It refuses to start without `APP_ORIGIN` unless `DEMO_AUTH=1`. Replace its `userOf` with your own session check and add a rate limit.
 
 `AgentChat` needs a key with `calls:chat-message`, and speech needs the speech key. Both stay on your backend in one of two ways.
 

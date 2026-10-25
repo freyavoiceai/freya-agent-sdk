@@ -71,7 +71,7 @@ async function readBody(req) {
 
 async function readJson(req) {
   // only JSON: a form or text/plain body is what a cross-site page can send with the user's cookie
-  if (!(req.headers["content-type"] ?? "").startsWith("application/json")) throw new HttpError(415, "application/json expected");
+  if (!(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) throw new HttpError(415, "application/json expected");
   try {
     const body = JSON.parse((await readBody(req)).toString("utf8"));
     if (body && typeof body === "object") return body;
@@ -122,8 +122,8 @@ async function chatMessage(req, res, user) {
     // not JSON: relayed as it is
   }
   // a first turn that failed on the server may still have started the call (a 504 carries its id)
+  // a call the agent ended stays known, so the app can still call end(); the cap bounds memory
   if (callId === undefined && typeof result?.callId === "string") remember(user, result.callId);
-  if (result?.endedByAgent === true && typeof result.callId === "string") forget(user, result.callId);
   res.writeHead(r.status, { "Content-Type": "application/json" });
   res.end(text);
 }
@@ -155,7 +155,7 @@ async function speech(req, res) {
 // The form is rebuilt: only the recording and a language come from the app, the model is fixed here.
 async function transcriptions(req, res) {
   const type = req.headers["content-type"] ?? "";
-  if (!type.startsWith("multipart/form-data")) throw new HttpError(415, "multipart/form-data expected");
+  if (!type.toLowerCase().startsWith("multipart/form-data")) throw new HttpError(415, "multipart/form-data expected");
   let sent;
   try {
     sent = await new Response(await readBody(req), { headers: { "Content-Type": type } }).formData();
@@ -166,10 +166,14 @@ async function transcriptions(req, res) {
   const file = sent.get("file");
   if (!(file instanceof Blob)) throw new HttpError(400, "file");
   const language = sent.get("language");
+  // the service may tell the format by the extension: keep a known one ("rec.m4a")
+  const ext = /\.(wav|mp3|m4a|mp4|aac|ogg|oga|opus|webm|flac)$/i.exec(file.name ?? "")?.[1].toLowerCase() ?? "wav";
   const form = new FormData();
-  form.append("file", file, "audio.wav");
+  form.append("file", file, `audio.${ext}`);
   form.append("model", "freya-stt");
-  form.append("language", typeof language === "string" && /^[a-z]{2}$/.test(language) ? language : "tr");
+  // "tr", or "tr-TR" taken as "tr"; anything else falls back to Turkish
+  const code = typeof language === "string" ? /^([a-z]{2})(?:[-_][a-z]{2})?$/i.exec(language)?.[1].toLowerCase() : undefined;
+  form.append("language", code ?? "tr");
   form.append("response_format", "verbose_json");
   await relay(res, await upstream(`${STT}/v1/audio/transcriptions`, "FREYA_SPEECH_KEY", { method: "POST", body: form }));
 }

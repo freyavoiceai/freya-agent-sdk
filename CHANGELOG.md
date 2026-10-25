@@ -14,9 +14,10 @@ All notable changes to this package. The format follows [Keep a Changelog](https
 - The release workflow publishes with npm trusted publishing; no npm token is stored.
 
 ### Fixed
-- Live STT held unlimited audio while the socket opened, waited forever for a socket that never opened or a result that never came, reported one failure twice, reported an error after `cancel()`, and sent frames after `finish()`.
+- Live STT held unlimited audio while the socket opened, waited forever for a socket that never opened or a result that never came, reported one failure twice, reported an error after `cancel()`, and sent frames after `finish()`. An `error` message from the service now ends the stream.
+- `SpeechReader` emitted `sentenceEnd` for a sentence stopped before its sound began, with no `sentenceStart`.
 - `WebAudioOutput` played nothing on a suspended `AudioContext` while the reader reported each sentence as spoken. It now tries to resume, and otherwise fails the sentence with "Audio is blocked until the user taps".
-- `examples/token-backend.mjs`: forwarded the app's multipart form as is (the app could pick the STT model or add a prompt); accepted JSON sent as `text/plain`, which a cross-site page can post with the user's cookie; bound tokens to localhost when `APP_ORIGIN` was missing; sent `Bearer undefined` for a missing key; never forgot ended calls.
+- `examples/token-backend.mjs`: forwarded the app's multipart form as is (the app could pick the STT model or add a prompt); accepted JSON sent as `text/plain`, which a cross-site page can post with the user's cookie; bound tokens to localhost when `APP_ORIGIN` was missing; sent `Bearer undefined` for a missing key; kept every call id forever (now the last 20 per user, so `end()` still works after the agent ends a call). It keeps the recording's file extension and takes `tr-TR` as `tr`.
 
 ## [0.2.1] - 2026-10-25
 

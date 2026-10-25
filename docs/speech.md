@@ -44,7 +44,7 @@ cancelButton.onclick = () => stream.cancel();
 ```
 
 - Frames sent before the socket opens are queued, up to `maxQueuedBytes` (default 1 MB, about 30 s at 16 kHz); more fails the stream. Frames after `finish()` are dropped.
-- `openTimeoutMs` (default 10 000) and `resultTimeoutMs` (after `finish()`, default 15 000) end a stream that hangs, with one `error`. A failing socket reports one `error`, then `close`; `cancel()` reports none.
+- `openTimeoutMs` (default 10 000) and `resultTimeoutMs` (after `finish()`, default 15 000) end a stream that hangs, with one `error`. A failing socket, or an `error` message from the service, reports one `error`, then `close`; `cancel()` reports none.
 - The token goes in an `Authorization` header, which React Native's `WebSocket` sends. Browsers cannot send it, and Node's built-in `WebSocket` drops it: from a browser, point `stt.url` at a proxy; in Node, pass `createWebSocket`, for example with the `ws` package: `(url, headers) => new WebSocket(url, { headers })`.
 
 ## Text to speech
