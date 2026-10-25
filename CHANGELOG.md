@@ -4,6 +4,20 @@ All notable changes to this package. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-25
+
+### Added
+- `dist/sbom.cdx.json`: a CycloneDX SBOM of the bundled third-party code, for scanners that cannot see it as dependencies. It is attached to each GitHub release too.
+- `stt.stream()` options `openTimeoutMs` (10 s), `resultTimeoutMs` (15 s after `finish()`) and `maxQueuedBytes` (1 MB).
+
+### Changed
+- The release workflow publishes with npm trusted publishing; no npm token is stored.
+
+### Fixed
+- Live STT held unlimited audio while the socket opened, waited forever for a socket that never opened or a result that never came, reported one failure twice, reported an error after `cancel()`, and sent frames after `finish()`.
+- `WebAudioOutput` played nothing on a suspended `AudioContext` while the reader reported each sentence as spoken. It now tries to resume, and otherwise fails the sentence with "Audio is blocked until the user taps".
+- `examples/token-backend.mjs`: forwarded the app's multipart form as is (the app could pick the STT model or add a prompt); accepted JSON sent as `text/plain`, which a cross-site page can post with the user's cookie; bound tokens to localhost when `APP_ORIGIN` was missing; sent `Bearer undefined` for a missing key; never forgot ended calls.
+
 ## [0.2.1] - 2026-10-25
 
 First version on npm, after a second security and quality review.

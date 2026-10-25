@@ -7,6 +7,8 @@ import { FreyaSpeech, WebAudioOutput } from "@freyavoice/agent-sdk";
 
 const output = new WebAudioOutput();
 await output.unlock();                       // from a tap: browsers allow audio only after a gesture
+// Without it a browser keeps the audio blocked: WebAudioOutput tries to resume, and if it cannot,
+// each sentence fails with "Audio is blocked until the user taps" (an `error`, then `sentenceSilent`).
 
 const reader = speech.reader(output, {
   groupSize: 1,

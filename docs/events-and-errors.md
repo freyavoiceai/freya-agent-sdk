@@ -41,6 +41,7 @@ A listener that throws is logged and does not stop the emitter.
 | `Error` named `TimeoutError` | any request | | No answer within `timeoutMs` (default 30 s; 75 s for `AgentChat`) |
 | `TypeError` from `fetch`, or `TypeError("The service answered with a redirect…")` | any request | | A redirect: the SDK does not accept one, so point the URL at the final address. On React Native fetch has already followed it, so the request reached the other host; only the answer is refused |
 | `Error("… must be an https:// URL …")` | constructors | | A plain http URL other than localhost |
+| `Error("Audio is blocked until the user taps…")` | `WebAudioOutput.play` (a reader reports it as `error` + `sentenceSilent`) | | The browser blocks audio until a gesture: call `unlock()` in a tap handler |
 | `SpeechAuthError` | speech, `AgentChat` | `status` | The token source gave no token, or one with characters a header cannot carry (the message never repeats it), or a fixed token was rejected |
 | `Error("Agent chat: the answer has no callId")` | `AgentChat.send` | | The dashboard answered without a call id |
 | `Error("Already connected…")` | `FreyaClient.connect` | | Call `disconnect()` first |

@@ -39,6 +39,7 @@ jobs:
             freyavoice-agent-sdk-*.tgz
             dist/freya-agent-sdk.js
             dist/THIRD_PARTY_NOTICES.txt
+            dist/sbom.cdx.json
             release-notes.md
 
   # Runs only after a maintainer approves it in the protected "npm" environment.
@@ -58,10 +59,11 @@ jobs:
           # npm 11.5.1 or newer, for trusted publishing
           node-version: 24
           registry-url: https://registry.npmjs.org
+      # npm trusted publishing: the job's OIDC token proves it is this workflow, so no npm token
+      # is stored anywhere. It needs npm 11.5.1 or newer.
+      - name: npm supports trusted publishing
+        run: node -e 'const [a,b,c]=process.argv[1].split(".").map(Number); process.exit(a>11||(a===11&&(b>5||(b===5&&c>=1)))?0:1)' "$(npm --version)"
       - name: Publish to npm with provenance
-        env:
-          # only for the first publish; afterwards npm trusted publishing needs no token
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           version="${GITHUB_REF_NAME#v}"
           tag=latest
@@ -73,5 +75,5 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --verify-tag \
-            "freyavoice-agent-sdk-$version.tgz" dist/freya-agent-sdk.js dist/THIRD_PARTY_NOTICES.txt \
+            "freyavoice-agent-sdk-$version.tgz" dist/freya-agent-sdk.js dist/THIRD_PARTY_NOTICES.txt dist/sbom.cdx.json \
             --title "$GITHUB_REF_NAME" --notes-file release-notes.md

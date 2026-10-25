@@ -9,7 +9,14 @@ const env = (name, fallback) => process.env[name] ?? fallback;
 const DASHBOARD = env("FREYA_BASE_URL", "https://app.freyavoice.ai");
 const STT = env("FREYA_STT_URL", "https://stt.freyavoice.ai");
 const TTS = env("FREYA_TTS_URL", "https://tts.freyavoice.ai");
-const ORIGIN = env("APP_ORIGIN", "http://localhost:5173");
+const DEMO = process.env.DEMO_AUTH === "1";
+// The web origin embed tokens are bound to. Required outside the local demo: a default would
+// silently bind production tokens to localhost.
+const ORIGIN = env("APP_ORIGIN", DEMO ? "http://localhost:5173" : undefined);
+if (!ORIGIN) {
+  console.error("Set APP_ORIGIN to your app's origin, e.g. https://app.example.com");
+  process.exit(1);
+}
 const MAX_BODY = 10 * 1024 * 1024; // a 30 s recording is about 1 MB
 const UPSTREAM_TIMEOUT_MS = 30_000;
 
@@ -17,7 +24,7 @@ const UPSTREAM_TIMEOUT_MS = 30_000;
 // or null. Without it this example refuses everyone, unless DEMO_AUTH=1 says it is a local demo.
 function userOf(req) {
   const auth = req.headers.authorization ?? "";
-  if (process.env.DEMO_AUTH === "1" && auth.startsWith("Bearer ")) return auth.slice("Bearer ".length);
+  if (DEMO && auth.startsWith("Bearer ")) return auth.slice("Bearer ".length);
   return null;
 }
 
@@ -28,6 +35,21 @@ function customerVariablesOf(_user) {
 
 // Calls each user started, so nobody can continue or end someone else's (in memory: one process only).
 const callsOf = new Map();
+const MAX_CALLS_PER_USER = 20;
+
+function remember(user, callId) {
+  const mine = callsOf.get(user) ?? new Set();
+  mine.add(callId);
+  // a Set keeps insertion order: the oldest call goes first
+  while (mine.size > MAX_CALLS_PER_USER) mine.delete(mine.values().next().value);
+  callsOf.set(user, mine);
+}
+
+function forget(user, callId) {
+  const mine = callsOf.get(user);
+  mine?.delete(callId);
+  if (mine?.size === 0) callsOf.delete(user);
+}
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -48,6 +70,8 @@ async function readBody(req) {
 }
 
 async function readJson(req) {
+  // only JSON: a form or text/plain body is what a cross-site page can send with the user's cookie
+  if (!(req.headers["content-type"] ?? "").startsWith("application/json")) throw new HttpError(415, "application/json expected");
   try {
     const body = JSON.parse((await readBody(req)).toString("utf8"));
     if (body && typeof body === "object") return body;
@@ -58,9 +82,12 @@ async function readJson(req) {
 }
 
 function upstream(url, key, init) {
+  const secret = env(key);
+  if (!secret) throw new HttpError(500, `${key} is not set on the server`);
   return fetch(url, {
     ...init,
-    headers: { ...init.headers, Authorization: `Bearer ${env(key)}` },
+    headers: { ...init.headers, Authorization: `Bearer ${secret}` },
+    redirect: "error",
     signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   });
 }
@@ -74,10 +101,9 @@ async function relay(res, response) {
 async function chatMessage(req, res, user) {
   const { message, callId } = await readJson(req);
   if (typeof message !== "string" || !message.trim() || message.length > 4000) throw new HttpError(400, "message");
-  const mine = callsOf.get(user) ?? new Set();
   let body;
   if (callId !== undefined) {
-    if (!mine.has(callId)) throw new HttpError(403, "not your call");
+    if (!callsOf.get(user)?.has(callId)) throw new HttpError(403, "not your call");
     body = { message, callId };
   } else {
     const start = env("FREYA_WORKFLOW_ID") ? { workflowId: env("FREYA_WORKFLOW_ID") } : { agentId: env("FREYA_AGENT_ID") };
@@ -89,24 +115,28 @@ async function chatMessage(req, res, user) {
     body: JSON.stringify(body),
   });
   const text = await r.text();
-  if (r.ok && callId === undefined) {
-    const started = JSON.parse(text)?.data?.result?.callId;
-    if (typeof started === "string") callsOf.set(user, mine.add(started));
+  let result;
+  try {
+    result = JSON.parse(text)?.data?.result;
+  } catch {
+    // not JSON: relayed as it is
   }
+  // a first turn that failed on the server may still have started the call (a 504 carries its id)
+  if (callId === undefined && typeof result?.callId === "string") remember(user, result.callId);
+  if (result?.endedByAgent === true && typeof result.callId === "string") forget(user, result.callId);
   res.writeHead(r.status, { "Content-Type": "application/json" });
   res.end(text);
 }
 
 async function chatEnd(req, res, user) {
   const { callId } = await readJson(req);
-  const mine = callsOf.get(user);
-  if (!mine?.has(callId)) throw new HttpError(403, "not your call");
+  if (!callsOf.get(user)?.has(callId)) throw new HttpError(403, "not your call");
   const r = await upstream(`${DASHBOARD}/api/v2/chat/end`, "FREYA_CHAT_KEY", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ callId }),
   });
-  if (r.ok) mine.delete(callId);
+  if (r.ok) forget(user, callId);
   await relay(res, r);
 }
 
@@ -122,14 +152,26 @@ async function speech(req, res) {
   await relay(res, r);
 }
 
+// The form is rebuilt: only the recording and a language come from the app, the model is fixed here.
 async function transcriptions(req, res) {
   const type = req.headers["content-type"] ?? "";
   if (!type.startsWith("multipart/form-data")) throw new HttpError(415, "multipart/form-data expected");
-  await relay(res, await upstream(`${STT}/v1/audio/transcriptions`, "FREYA_SPEECH_KEY", {
-    method: "POST",
-    headers: { "Content-Type": type },
-    body: await readBody(req),
-  }));
+  let sent;
+  try {
+    sent = await new Response(await readBody(req), { headers: { "Content-Type": type } }).formData();
+  } catch (err) {
+    if (err instanceof HttpError) throw err;
+    throw new HttpError(400, "malformed form");
+  }
+  const file = sent.get("file");
+  if (!(file instanceof Blob)) throw new HttpError(400, "file");
+  const language = sent.get("language");
+  const form = new FormData();
+  form.append("file", file, "audio.wav");
+  form.append("model", "freya-stt");
+  form.append("language", typeof language === "string" && /^[a-z]{2}$/.test(language) ? language : "tr");
+  form.append("response_format", "verbose_json");
+  await relay(res, await upstream(`${STT}/v1/audio/transcriptions`, "FREYA_SPEECH_KEY", { method: "POST", body: form }));
 }
 
 // Exact paths only, matched after normalising, and the query string is dropped:
@@ -171,9 +213,9 @@ createServer((req, res) => {
   handle(req, res).catch((err) => {
     const status = err instanceof HttpError ? err.status : 502;
     const id = randomUUID();
-    if (status === 502) console.error(id, err);
+    if (status >= 500) console.error(id, err);
     if (res.headersSent) return res.destroy();
     res.writeHead(status, { "Content-Type": "text/plain" });
-    res.end(status === 502 ? `upstream failed (${id})` : err.message);
+    res.end(status >= 500 ? `server error (${id})` : err.message);
   });
 }).listen(8787, "127.0.0.1", () => console.log("token backend on http://127.0.0.1:8787"));

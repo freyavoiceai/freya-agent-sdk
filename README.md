@@ -26,7 +26,7 @@ Every version is published from this repository's release workflow with npm prov
 | `@freyavoice/agent-sdk/speech` | STT, TTS, `SpeechReader`, `VoiceActivity` (no WebRTC dependency, about 25 KB) | React Native, Node |
 | `dist/freya-agent-sdk.js` (a file, not an import) | everything, as a `<script>` bundle exposing `window.Freya` | pages without a bundler: copy it from `node_modules/@freyavoice/agent-sdk/dist/` |
 
-The package is ESM only, ships its own TypeScript types and has no runtime dependencies: the WebRTC libraries it uses are bundled, with their licenses in `dist/THIRD_PARTY_NOTICES.txt`. Node 20 or newer.
+The package is ESM only, ships its own TypeScript types and has no runtime dependencies: the WebRTC libraries it uses are bundled, with their licenses in `dist/THIRD_PARTY_NOTICES.txt` and as a CycloneDX SBOM in `dist/sbom.cdx.json`. Node 20 or newer.
 
 ## Quick start
 

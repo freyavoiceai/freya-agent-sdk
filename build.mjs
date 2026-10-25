@@ -1,5 +1,6 @@
 import { build } from "esbuild";
 import { execSync } from "child_process";
+import { createHash } from "crypto";
 import { readdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve, dirname, join } from "path";
 import { fileURLToPath } from "url";
@@ -76,6 +77,30 @@ const notices = [...packages]
 writeFileSync(
   out("THIRD_PARTY_NOTICES.txt"),
   `The Freya Agent SDK bundles the following packages.\n\n${notices.join(`\n\n${"-".repeat(72)}\n\n`)}\n`,
+);
+
+// The same list as a CycloneDX SBOM, for scanners: the package has no dependencies to read it from.
+// No timestamp and a serial number derived from the content, so the build stays reproducible.
+const purl = (name, v) => `pkg:npm/${name.replace(/^@/, "%40")}@${v}`;
+const components = [...packages]
+  .sort(([a], [b]) => a.localeCompare(b))
+  .map(([name, dir]) => {
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    return { type: "library", name, version: pkg.version, purl: purl(name, pkg.version), licenses: [{ license: { id: pkg.license } }] };
+  });
+components.push({
+  type: "library",
+  name: "wavtools",
+  description: "Adapted from openai-realtime-console, inside @pipecat-ai/small-webrtc-transport",
+  purl: "pkg:github/openai/openai-realtime-console",
+  licenses: [{ license: { id: "MIT" } }],
+});
+const self = { type: "library", name: "@freyavoice/agent-sdk", version, purl: purl("@freyavoice/agent-sdk", version), licenses: [{ license: { id: "Apache-2.0" } }] };
+const digest = createHash("sha256").update(JSON.stringify([self, components])).digest("hex");
+const serial = `urn:uuid:${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-8${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+writeFileSync(
+  out("sbom.cdx.json"),
+  `${JSON.stringify({ bomFormat: "CycloneDX", specVersion: "1.5", serialNumber: serial, version: 1, metadata: { component: self }, components }, null, 2)}\n`,
 );
 
 execSync("tsc --emitDeclarationOnly --noEmit false", { cwd: here, stdio: "inherit" });

@@ -13,7 +13,7 @@ Report a suspected vulnerability privately, not in an issue or pull request: ope
 
 ## Releases
 
-Every npm version is built and published by this repository's release workflow after a maintainer approves it, with npm provenance. `npm audit signatures` verifies it. The package has no runtime dependencies; the third-party code it bundles is listed with its licenses in `dist/THIRD_PARTY_NOTICES.txt`.
+Every npm version is built and published by this repository's release workflow after a maintainer approves it, with npm provenance. `npm audit signatures` verifies it. The package has no runtime dependencies; the third-party code it bundles is listed with its licenses in `dist/THIRD_PARTY_NOTICES.txt` and, for scanners, as a CycloneDX SBOM in `dist/sbom.cdx.json` (also attached to each GitHub release).
 
 ## Supported versions
 
