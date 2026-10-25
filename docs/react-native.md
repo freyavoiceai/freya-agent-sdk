@@ -5,13 +5,13 @@
 | Part | React Native | Needs |
 |---|---|---|
 | `AgentChat` | yes | `fetch` (built in) |
-| `FreyaSpeech.stt.transcribe` | yes | a file reference `{ uri, name, type }` or PCM |
+| `FreyaSpeech.stt.transcribe` | yes | a file reference `{ uri, name, type }`. React Native cannot build a `Blob` from bytes, so save PCM or WAV to a file first (`wavFromPcm` makes the WAV bytes) |
 | `FreyaSpeech.stt.stream` | yes | React Native's `WebSocket` (sends the `Authorization` header) |
 | `FreyaSpeech.tts`, `SpeechReader` | yes | an `AudioContext` from `react-native-audio-api` for playback |
 | `VoiceActivity` | yes | microphone frames from your recorder |
 | `FreyaClient` (WebRTC) | not yet | a React Native WebRTC transport, planned |
 
-Import from `@freyavoice/agent-sdk/speech` and `@freyavoice/agent-sdk/agent`; neither pulls in the browser WebRTC code.
+Import speech from `@freyavoice/agent-sdk/speech`, which has no WebRTC code. `@freyavoice/agent-sdk/agent` also carries the browser WebRTC client (about 350 KB) even when you use only `AgentChat`; it imports without running it.
 
 ## Wiring audio
 

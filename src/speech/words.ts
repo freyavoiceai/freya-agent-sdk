@@ -35,6 +35,8 @@ function spokenForm(word: string): string {
   const w = word.replace(/^[("'“]+|[)"'”.,;:!?…]+$/g, "");
   if (/^TL['’]/.test(w)) return "lira" + w.slice(3);
   if (w === "TL") return "Türk lirası";
+  // a date: "25.10.2026" is three numbers, not twenty-five million
+  if (/^\d{1,2}\.\d{1,2}\.\d{2,4}$/.test(w)) return w.split(".").map((n) => numberWords(parseInt(n, 10))).join(" ");
   const m = w.match(/^%?(\d[\d.]*)(?:,(\d+))?(['’]\S*)?$/);
   if (m) {
     return (
@@ -48,6 +50,8 @@ function spokenForm(word: string): string {
 }
 
 function syllables(word: string): number {
+  // nothing spoken is this long; its patterns would only cost time
+  if (word.length > 64) return Math.max(1, Math.round(word.length / 3));
   return Math.max((spokenForm(word).toLowerCase().match(/[aeiıoöuüâîû]+/g) ?? []).length, 1);
 }
 

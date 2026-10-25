@@ -199,12 +199,12 @@ describe("SpeechReader", () => {
     expect(t.events).toContain("1:recovered");
   });
 
-  it("skips a lost chunk when it cannot be fetched again", async () => {
+  it("skips a lost chunk after one gap when nothing can fetch it again", async () => {
     const t = setup(fakeService(), { resendTries: 2 });
     t.reader.push({ seq: 0, text: ANSWER[0] });
     t.reader.push({ seq: 2, text: ANSWER[2], final: true });
     const summary = await t.done;
-    expect(t.events.filter((e) => e === "1:missing")).toHaveLength(2);
+    expect(t.events.filter((e) => e === "1:missing")).toHaveLength(1);
     expect(t.events).toContain("1:skipped");
     expect(t.said).toEqual(["Kart borcunuz 4.250 TL.", "Asgari tutar 1.200 TL."]);
     expect(summary.skipped).toBe(1);
@@ -254,9 +254,18 @@ describe("SpeechReader", () => {
     t.reader.stop();
     t.reader.push({ seq: 1, text: ANSWER[1], final: true });
     await new Promise((r) => setTimeout(r, 30));
-    expect(t.output.stopCalls).toBe(1);
+    // nothing of its own was playing yet, so the shared output is left alone
+    expect(t.output.stopCalls).toBe(0);
     expect(t.said).toEqual([]);
     expect(done).toBe(false);
+  });
+
+  it("silences its own sentence on barge-in", async () => {
+    const t = setup(fakeService());
+    t.reader.on("sentenceStart", () => t.reader.stop());
+    t.reader.push({ seq: 0, text: ANSWER[0], final: true });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(t.output.stopCalls).toBe(1);
   });
 
   it("emits word events in order for the sentence being read", async () => {

@@ -33,7 +33,13 @@ export class VoiceActivity extends Emitter<VoiceActivityEvents> {
 
   constructor(options: VoiceActivityOptions = {}) {
     super();
-    this.o = { startMs: 120, stopMs: 700, minLevel: 0.015, ratio: 3, ...options };
+    // an option given as undefined (an unset React prop) keeps its default
+    this.o = {
+      startMs: options.startMs ?? 120,
+      stopMs: options.stopMs ?? 700,
+      minLevel: options.minLevel ?? 0.015,
+      ratio: options.ratio ?? 3,
+    };
   }
 
   get isSpeaking(): boolean {

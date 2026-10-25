@@ -83,6 +83,15 @@ function isPcm(a: AudioInput): a is Pcm {
   return typeof a === "object" && a !== null && "samples" in a && "sampleRate" in a;
 }
 
+// React Native cannot build a Blob from bytes; there the recording goes in as a file.
+function blobOf(bytes: Uint8Array): Blob {
+  try {
+    return new Blob([bytes as BlobPart], { type: "audio/wav" });
+  } catch {
+    throw new Error("This platform cannot send audio bytes (React Native): save the recording as a file and pass { uri, name, type }");
+  }
+}
+
 function isFileRef(a: AudioInput): a is FileRef {
   return typeof a === "object" && a !== null && "uri" in a;
 }
@@ -105,8 +114,7 @@ export class FreyaStt {
       form.append("file", audio as unknown as Blob);
     } else {
       const bytes = isPcm(audio) ? wavFromPcm(audio) : audio instanceof ArrayBuffer ? new Uint8Array(audio) : audio;
-      const blob = bytes instanceof Blob ? bytes : new Blob([bytes as BlobPart], { type: "audio/wav" });
-      form.append("file", blob, "audio.wav");
+      form.append("file", bytes instanceof Blob ? bytes : blobOf(bytes as Uint8Array), "audio.wav");
     }
     form.append("model", this.model);
     form.append("language", options.language ?? this.language);

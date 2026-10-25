@@ -46,11 +46,45 @@ function withTimeout(signal: AbortSignal | null | undefined, ms: number): AbortS
   const ctl = new AbortController();
   const timeout = new Error(`Request timed out after ${ms} ms`);
   timeout.name = "TimeoutError";
-  const timer = setTimeout(() => ctl.abort(timeout), ms);
+  if (!signal) {
+    const timer = setTimeout(() => ctl.abort(timeout), ms);
+    (timer as { unref?: () => void }).unref?.();
+    return ctl.signal;
+  }
+  // AbortSignal.any leaves nothing on the caller's signal, which a reader shares across many requests
+  const any = (AbortSignal as { any?: (signals: AbortSignal[]) => AbortSignal }).any;
+  if (any) {
+    const timer = setTimeout(() => ctl.abort(timeout), ms);
+    (timer as { unref?: () => void }).unref?.();
+    return any([signal, ctl.signal]);
+  }
+  const forward = () => ctl.abort(signal.reason);
+  const timer = setTimeout(() => {
+    signal.removeEventListener("abort", forward);
+    ctl.abort(timeout);
+  }, ms);
   (timer as { unref?: () => void }).unref?.();
-  if (signal?.aborted) ctl.abort(signal.reason);
-  else signal?.addEventListener("abort", () => ctl.abort(signal.reason), { once: true });
+  if (signal.aborted) ctl.abort(signal.reason);
+  else signal.addEventListener("abort", forward, { once: true });
   return ctl.signal;
+}
+
+/**
+ * `redirect: "error"` stops a redirect where fetch honours it. React Native's fetch follows one
+ * anyway; its answer, from a host nobody configured, is refused here.
+ */
+function refuseRedirect(res: Response): Response {
+  if (res.redirected) throw new TypeError("The service answered with a redirect, which is refused");
+  return res;
+}
+
+/** A bearer token, or an error that does not repeat it (a crash report would carry it). */
+function checkedToken(raw: unknown): string {
+  // a backend's text answer often ends in a newline
+  const value = typeof raw === "string" ? raw.trim() : raw;
+  if (typeof value !== "string" || !value) throw new SpeechAuthError(401, "The token source gave no token");
+  if (!/^[!-~]+$/.test(value)) throw new SpeechAuthError(401, "The token has characters an HTTP header cannot carry");
+  return value;
 }
 
 const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -149,10 +183,10 @@ export class TokenKeeper {
     const source = this.options.token;
     if (typeof source === "string") {
       if (refresh) throw new SpeechAuthError(401, "Token rejected and no token function to renew it");
-      this.current = source;
-      return source;
+      this.current = checkedToken(source);
+      return this.current;
     }
-    const value = await source({ refresh });
+    const value = checkedToken(await source({ refresh }));
     this.current = value;
     const at = renewalTime(value, this.options.renewBeforeMs ?? 60_000);
     // already due (a very short token, or a device clock ahead): renewing on every request would not help
@@ -166,11 +200,14 @@ export class TokenKeeper {
       this.fetchImpl(url, {
         ...init,
         headers: { ...headerRecord(init.headers), Authorization: `Bearer ${token}` },
+        // https is checked on the configured URL only; a redirect could carry the voice or the
+        // text to another host, even over plain http
+        redirect: "error",
         signal: withTimeout(init.signal, this.options.timeoutMs ?? 30_000),
       });
     const first = await this.token();
-    const res = await send(first);
+    const res = refuseRedirect(await send(first));
     if (!(this.options.renewOn ?? [401, 403]).includes(res.status) || typeof this.options.token === "string") return res;
-    return send(await this.refresh(first));
+    return refuseRedirect(await send(await this.refresh(first)));
   }
 }

@@ -4,10 +4,20 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # a new release waits a week before it is proposed
+    cooldown:
+      default-days: 7
     groups:
+      # Pipecat is bundled into the package, so its updates change what customers run: review alone
+      pipecat:
+        patterns: ["@pipecat-ai/*"]
       dev-tools:
         dependency-type: development
+        exclude-patterns: ["@pipecat-ai/*"]
+        update-types: [minor, patch]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7

@@ -34,7 +34,9 @@ await chat.end();
 ## Errors and tokens
 
 - A 401 or 403 renews the token (when `token` is a function) and repeats the turn once.
-- Any other non-2xx status throws an error with `status` and the service's message. Treat 4xx as "fix the request or ask the user again" and 5xx as "the service failed: retry later or fall back".
+- Any other non-2xx status throws a `SpeechHttpError` with `status`; the start of the service's answer is in `body`. Treat 4xx as "fix the request or ask the user again" and 5xx as "the service failed: retry later or fall back".
+- A turn may take up to 70 s on the server, so `timeoutMs` defaults to 75 000. When a first turn fails but the server already started the conversation (a 504 still carries its `callId`), `callId` keeps it and the next `send` continues that conversation.
+- A 5xx or a timeout on a later turn does not say whether the agent got the message; sending it again may deliver it twice.
 - `send(text, { signal })` takes an `AbortSignal` to cancel a turn.
 
 ## Where it runs
