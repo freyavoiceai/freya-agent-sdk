@@ -7,6 +7,8 @@ vi.hoisted(() => {
   }
 });
 
+import { LogLevel, logger } from "@pipecat-ai/client-js";
+
 import { FreyaClient } from "./client.js";
 import { FreyaEvent } from "./types.js";
 
@@ -153,5 +155,34 @@ describe("botMessage turn aggregation", () => {
 
     expect(onStarted).toHaveBeenCalledTimes(1);
     expect(onStopped).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("session safety", () => {
+  it("a late disconnected event from an earlier session does not clear the current one", () => {
+    const client = new FreyaClient({ baseUrl: "https://x", token: "t" });
+    const old = makeFakePc();
+    const current = makeFakePc();
+    (client as any)._bindEvents(old);
+    (client as any)._bindEvents(current);
+    (client as any)._pc = current;
+    old.fire("disconnected");
+    expect((client as any)._pc).toBe(current);
+    current.fire("disconnected");
+    expect((client as any)._pc).toBeNull();
+  });
+
+  it("refuses a plain http baseUrl", () => {
+    expect(() => new FreyaClient({ baseUrl: "http://bank.example", token: "t" })).toThrow(/https/);
+  });
+
+  it("turns the WebRTC layer's console logging down to warnings before connecting", async () => {
+    logger.setLevel(LogLevel.DEBUG);
+    const client = new FreyaClient({ baseUrl: "https://x", token: "t", mode: "chat", iceServers: [] });
+    // jsdom has no WebRTC: check the level as the handshake starts, then abandon it
+    const pending = client.connect().catch(() => undefined);
+    expect((logger as unknown as { level: LogLevel }).level).toBe(LogLevel.WARN);
+    await client.disconnect();
+    await pending;
   });
 });

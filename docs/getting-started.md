@@ -40,7 +40,7 @@ npm install github:freyavoiceai/freya-agent-sdk
 ```
 
 ```js
-import { FreyaSpeech } from "@freya/agent-sdk/speech";
+import { FreyaSpeech } from "@freyavoice/agent-sdk/speech";
 
 const speech = new FreyaSpeech({ token: process.env.FREYA_SPEECH_TOKEN });
 const pcm = await speech.tts.synthesize("Merhaba, size nasıl yardımcı olabilirim?");

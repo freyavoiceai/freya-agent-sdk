@@ -1,15 +1,43 @@
-import { PipecatClient, RTVIEvent } from "@pipecat-ai/client-js";
+import { LogLevel, PipecatClient, RTVIEvent, logger } from "@pipecat-ai/client-js";
 import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
+import { secureBase } from "../speech/auth.js";
 import {
   type FreyaClientConfig,
   type FreyaEventMap,
   type FreyaEventName,
   FreyaEvent,
-  RTVI_TO_FREYA,
 } from "./types.js";
 import { NativeMicManager } from "./native-media-manager.js";
 
 type Listener = (...args: unknown[]) => void;
+
+/**
+ * Maps Pipecat RTVIEvent values we care about to FreyaEvent names.
+ * Events not in this map are silently ignored.
+ */
+const RTVI_TO_FREYA: Partial<Record<RTVIEvent, FreyaEventName>> = {
+  [RTVIEvent.TransportStateChanged]: FreyaEvent.StateChanged,
+  [RTVIEvent.BotReady]: FreyaEvent.BotReady,
+  [RTVIEvent.BotStartedSpeaking]: FreyaEvent.BotStartedSpeaking,
+  [RTVIEvent.BotStoppedSpeaking]: FreyaEvent.BotStoppedSpeaking,
+  [RTVIEvent.UserStartedSpeaking]: FreyaEvent.UserStartedSpeaking,
+  [RTVIEvent.UserStoppedSpeaking]: FreyaEvent.UserStoppedSpeaking,
+  [RTVIEvent.UserTranscript]: FreyaEvent.UserTranscript,
+  [RTVIEvent.BotLlmStarted]: FreyaEvent.BotLlmStarted,
+  [RTVIEvent.BotLlmText]: FreyaEvent.BotLlmText,
+  [RTVIEvent.BotLlmStopped]: FreyaEvent.BotLlmStopped,
+  [RTVIEvent.BotTranscript]: FreyaEvent.BotTranscript,
+  [RTVIEvent.BotOutput]: FreyaEvent.BotOutput,
+  [RTVIEvent.TrackStarted]: FreyaEvent.TrackStarted,
+  [RTVIEvent.TrackStopped]: FreyaEvent.TrackStopped,
+  [RTVIEvent.Error]: FreyaEvent.Error,
+  [RTVIEvent.Disconnected]: FreyaEvent.Disconnected,
+  [RTVIEvent.LLMFunctionCallStarted]: FreyaEvent.ToolCallStarted,
+  [RTVIEvent.LLMFunctionCallInProgress]: FreyaEvent.ToolCallInProgress,
+  [RTVIEvent.LLMFunctionCallStopped]: FreyaEvent.ToolCallStopped,
+};
+
+const LOG_LEVELS = { none: LogLevel.NONE, error: LogLevel.ERROR, warn: LogLevel.WARN, info: LogLevel.INFO, debug: LogLevel.DEBUG };
 
 /**
  * Headless SDK for embedding Freya voice/chat agents.
@@ -22,7 +50,7 @@ type Listener = (...args: unknown[]) => void;
  */
 export class FreyaClient {
   // iceServers stays optional: an omitted option asks the backend, an explicit [] disables.
-  private _config: Omit<Required<FreyaClientConfig>, "iceServers"> & Pick<FreyaClientConfig, "iceServers">;
+  private _config: Omit<Required<FreyaClientConfig>, "iceServers" | "logLevel"> & Pick<FreyaClientConfig, "iceServers" | "logLevel">;
   private _pc: PipecatClient | null = null;
   private _pendingPc: PipecatClient | null = null;
   // Set before the first await so disconnect() and a second connect() see it.
@@ -37,7 +65,7 @@ export class FreyaClient {
       metadata: {},
       customerVariables: {},
       ...config,
-      baseUrl: config.baseUrl.replace(/\/$/, ""),
+      baseUrl: secureBase(config.baseUrl, "baseUrl"),
     };
   }
 
@@ -101,6 +129,9 @@ export class FreyaClient {
       return;
     }
 
+    // Pipecat logs at debug by default, which prints the whole conversation to the console.
+    logger.setLevel(LOG_LEVELS[this._config.logLevel ?? "warn"]);
+
     const transport = new SmallWebRTCTransport({
       ...(iceServers && iceServers.length > 0 ? { iceServers } : {}),
       waitForICEGathering: true,
@@ -160,6 +191,11 @@ export class FreyaClient {
           },
         },
       });
+      // disconnect() came while the handshake was running: do not resurrect the session.
+      if (attempt.signal.aborted) {
+        try { await pc.disconnect(); } catch { /* best-effort */ }
+        return;
+      }
       // Only assign after a successful handshake so a failed connect()
       // call doesn't leave this._pc set and block retries.
       this._pc = pc;
@@ -229,7 +265,8 @@ export class FreyaClient {
   private _bindEvents(pc: PipecatClient) {
     // Clean up internal state on remote disconnect so connect() can be called again.
     pc.on(RTVIEvent.Disconnected, () => {
-      this._cleanup();
+      // a late event from an earlier session must not clear the current one
+      if (this._pc === pc || this._pendingPc === pc) this._cleanup();
     });
 
     // Aggregate streaming LLM chunks into one botMessage per turn.

@@ -59,3 +59,26 @@ describe("AgentChat", () => {
     await expect(chat.send("Merhaba")).rejects.toMatchObject({ status: 403 });
   });
 });
+
+describe("AgentChat safety", () => {
+  it("starts one conversation when two first messages go out together", async () => {
+    const dash = fakeDashboard();
+    const chat = new AgentChat({ baseUrl: "https://app.freyavoice.ai", token: "k", workflowId: "w1", fetch: dash.fetch });
+    await Promise.all([chat.send("Merhaba"), chat.send("Bakiyem ne kadar?")]);
+    const bodies = dash.calls.map((c) => c.body);
+    expect(bodies[0]).toMatchObject({ workflowId: "w1" });
+    expect(bodies[1]).toMatchObject({ callId: "11111111-1111-1111-1111-111111111111" });
+    expect(bodies[1]).not.toHaveProperty("workflowId");
+  });
+
+  it("throws when the answer has no callId instead of sending 'undefined' next", async () => {
+    const fetch = vi.fn(async () => Response.json({ data: { result: { response: "ok" } } }));
+    const chat = new AgentChat({ baseUrl: "https://app.freyavoice.ai", token: "k", workflowId: "w1", fetch });
+    await expect(chat.send("Merhaba")).rejects.toThrow(/callId/);
+    expect(chat.callId).toBeNull();
+  });
+
+  it("refuses a plain http baseUrl", () => {
+    expect(() => new AgentChat({ baseUrl: "http://bank.example", token: "k", workflowId: "w1" })).toThrow(/https/);
+  });
+});

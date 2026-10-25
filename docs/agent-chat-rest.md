@@ -3,7 +3,7 @@
 `AgentChat` talks to a Freya agent or workflow one request per turn: no WebRTC, no open socket. Pair it with `FreyaSpeech` for a voice experience on a platform without WebRTC.
 
 ```js
-import { AgentChat } from "@freya/agent-sdk/agent";
+import { AgentChat } from "@freyavoice/agent-sdk/agent";
 
 const chat = new AgentChat({
   baseUrl: "https://app.freyavoice.ai",   // or your backend that proxies it

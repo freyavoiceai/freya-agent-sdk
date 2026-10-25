@@ -11,13 +11,13 @@
 | `VoiceActivity` | yes | microphone frames from your recorder |
 | `FreyaClient` (WebRTC) | not yet | a React Native WebRTC transport, planned |
 
-Import from `@freya/agent-sdk/speech` and `@freya/agent-sdk/agent`; neither pulls in the browser WebRTC code.
+Import from `@freyavoice/agent-sdk/speech` and `@freyavoice/agent-sdk/agent`; neither pulls in the browser WebRTC code.
 
 ## Wiring audio
 
 ```tsx
 import { AudioContext } from "react-native-audio-api";
-import { FreyaSpeech, WebAudioOutput } from "@freya/agent-sdk/speech";
+import { FreyaSpeech, WebAudioOutput } from "@freyavoice/agent-sdk/speech";
 
 const speech = new FreyaSpeech({ token: ({ refresh }) => api.speechToken(refresh), stt: { url: PROXY }, tts: { url: PROXY } });
 const output = new WebAudioOutput({ context: new AudioContext() });

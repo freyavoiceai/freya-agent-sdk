@@ -40,7 +40,7 @@ The app passes it to `new FreyaClient({ baseUrl, token })`. A call that is alrea
 
 | Option | How | When |
 |---|---|---|
-| Proxy | Point `baseUrl` (`AgentChat`) or `stt.url` / `tts.url` (`FreyaSpeech`) at your backend. It checks the app's own session token, adds the Freya key and forwards the request unchanged. | Mobile and web apps (recommended) |
+| Proxy | Point `baseUrl` (`AgentChat`) or `stt.url` / `tts.url` (`FreyaSpeech`) at your backend. It checks the app's own session token, builds the upstream request itself and adds the Freya key. The app must not choose what it may not do: the backend fixes the agent or workflow, takes customer variables from the session, and continues or ends only calls this user started. | Mobile and web apps (recommended) |
 | Server-side | Run `AgentChat` and `FreyaSpeech` in Node with the key from the environment. | Server-to-server integrations |
 
 A minimal proxy is in [`examples/token-backend.mjs`](../examples/token-backend.mjs).
@@ -58,7 +58,7 @@ const speech = new FreyaSpeech({
 - The function is called once for the first request, then again with `{ refresh: true }` after a 401 or 403 (`renewOn` changes the list).
 - The failed request is repeated once with the new token. A sentence being read aloud carries on from where it was.
 - Requests running at the same time share one refresh.
-- A second 401 or 403 after renewal throws `SpeechAuthError` (speech) or an error with `status` (`AgentChat`).
+- A second 401 or 403 after renewal throws `SpeechHttpError` with that `status`.
 - Freya speech answers an invalid key with 403, not 401, which is why both statuses renew by default.
 - When the function returns a JWT with `exp`, it is also called with `{ refresh: true }` shortly before that time: 60 s before by default, at most a fifth of the token's lifetime (`renewBeforeMs`, `0` turns it off). The check runs at the next request, without timers. The current token stays in use while the new one is fetched, and is kept if the token function fails.
 
@@ -67,5 +67,8 @@ const speech = new FreyaSpeech({
 - Keys only in your backend's secret store; never in the app bundle, logs or URLs.
 - Embed tokens with the shortest `ttlSeconds` that covers connecting, bound to your exact origin.
 - Your proxy forwards only the paths the SDK uses: `/v1/audio/speech`, `/v1/audio/transcriptions`, `/v1/audio/stream`, `/api/v2/chat/message`, `/api/v2/chat/end`.
+- Your proxy builds the body: agent or workflow id from its own config, customer variables from the user's session, a `callId` only if this user started that call. It drops the query string, caps the body size and sets a timeout.
+- Anything the app sends (customer variables, metadata) can be changed by the user. Never let it decide whose data the agent reads.
+- All URLs are `https://`; the SDK refuses plain http except for localhost.
 - Rate-limit the token and proxy endpoints per user.
 - In browsers a WebSocket cannot send an `Authorization` header, so live STT from a browser must go through your proxy.

@@ -6,8 +6,12 @@ import { wordTimings, type WordTiming } from "./words.js";
 
 /** One piece of an answer as the app receives it, e.g. the text of one MQTT message. */
 export interface Chunk {
-  /** Position in the answer, from 0. Left out, chunks are taken in arrival order. */
-  seq?: number;
+  /**
+   * Position in the answer, from 0. Left out, chunks are taken in arrival order. A whole-number
+   * string ("3", as JSON from a queue may carry it) is read as that number; anything else drops
+   * the chunk with an `error` event.
+   */
+  seq?: number | string;
   text: string;
   /** This is the answer's last chunk. */
   final?: boolean;
@@ -24,6 +28,8 @@ export interface ReaderOptions {
   gapMs?: number;
   /** Attempts for a missing chunk before it is skipped. */
   resendTries?: number;
+  /** How far past the next expected chunk a chunk may be held; one further ahead is dropped. */
+  maxAhead?: number;
   /** Fetches a chunk that never arrived (e.g. from the answer store). Without it, the gap is skipped. */
   fetchMissing?: (seq: number, signal: AbortSignal) => Promise<Chunk>;
   voice?: string;
@@ -50,10 +56,17 @@ export interface ReaderEvents {
   sentenceStart: { index: number; text: string; words: WordTiming[]; duration: number };
   word: { index: number; wordIndex: number; word: string };
   sentenceEnd: { index: number; text: string; interrupted: boolean };
-  /** TTS failed twice for this sentence: show its text, no sound. */
+  /** TTS failed twice for this sentence, or the device would not play it: show its text, no sound. */
   sentenceSilent: { index: number; text: string; error: string };
   done: ReaderSummary;
+  /** A chunk was dropped (bad or far-off `seq`) or a sentence could not be played. Reading goes on. */
   error: { message: string };
+}
+
+/** A non-negative whole number, also from a numeric string; null for anything else. */
+function wholeNumber(value: unknown): number | null {
+  const n = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  return typeof n === "number" && Number.isSafeInteger(n) && n >= 0 ? n : null;
 }
 
 interface Item {
@@ -99,6 +112,7 @@ export class SpeechReader extends Emitter<ReaderEvents> {
       splitFirst: options.splitFirst ?? true,
       gapMs: options.gapMs ?? 1200,
       resendTries: options.resendTries ?? 3,
+      maxAhead: Math.max(1, options.maxAhead ?? 50),
       fetchMissing: options.fetchMissing,
       voice: options.voice,
     };
@@ -111,7 +125,15 @@ export class SpeechReader extends Emitter<ReaderEvents> {
   /** The single input: hand every chunk here as it arrives, in any order. */
   push(chunk: Chunk): void {
     if (this.stopped || this.textClosed) return;
-    const seq = chunk.seq ?? this.autoSeq;
+    const seq = chunk.seq === undefined ? this.autoSeq : wholeNumber(chunk.seq);
+    if (seq === null) {
+      this.emit("error", { message: `Chunk dropped: seq ${JSON.stringify(chunk.seq)} is not a whole number` });
+      return;
+    }
+    if (seq > this.next + this.o.maxAhead) {
+      this.emit("error", { message: `Chunk dropped: seq ${seq} is more than ${this.o.maxAhead} ahead of ${this.next}` });
+      return;
+    }
     this.autoSeq = Math.max(this.autoSeq, seq + 1);
     this.take({ ...chunk, seq }, false);
   }
@@ -120,7 +142,11 @@ export class SpeechReader extends Emitter<ReaderEvents> {
   end(parts?: number): void {
     if (this.stopped) return;
     this.ended = true;
-    if (this.lastSeq === null) this.lastSeq = parts !== undefined ? parts - 1 : this.maxSeen;
+    if (this.lastSeq === null) {
+      const n = parts === undefined ? null : wholeNumber(parts);
+      // a count that is not a number, or far beyond what arrived, would wait for chunks that never come
+      this.lastSeq = n !== null && n > 0 && n - 1 <= this.maxSeen + this.o.maxAhead ? n - 1 : this.maxSeen;
+    }
     this.check();
   }
 
@@ -297,7 +323,18 @@ export class SpeechReader extends Emitter<ReaderEvents> {
     this.busy = true;
     item.ready.then(async (pcm) => {
       if (this.stopped) return;
-      if (pcm) await this.play(item, pcm);
+      if (pcm) {
+        try {
+          await this.play(item, pcm);
+        } catch (err) {
+          // the device would not play it: show the text and go on with the next sentence
+          this.clearWords();
+          const message = err instanceof Error ? err.message : String(err);
+          this.stats.silent++;
+          this.emit("error", { message: `Playback failed: ${message}` });
+          this.emit("sentenceSilent", { index: item.index, text: item.text, error: message });
+        }
+      }
       if (this.stopped) return;
       this.pos++;
       this.busy = false;

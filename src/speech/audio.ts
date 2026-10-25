@@ -24,6 +24,7 @@ export interface AudioContextLike {
   resume?(): Promise<void>;
   createBuffer(channels: number, length: number, sampleRate: number): { getChannelData(ch: number): Float32Array };
   createBufferSource(): BufferSourceLike;
+  close?(): Promise<void>;
 }
 
 export interface WebAudioOutputOptions {
@@ -82,6 +83,15 @@ export class WebAudioOutput implements AudioOutput {
       src.start();
       onStart();
     });
+  }
+
+  /** Stops playback and closes the context this output created (one passed in is left to its owner). */
+  async close(): Promise<void> {
+    this.stop();
+    const ctx = this.ctx;
+    if (!ctx || this.options.context) return;
+    this.ctx = null;
+    await ctx.close?.();
   }
 
   stop(): void {

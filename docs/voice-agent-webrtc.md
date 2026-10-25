@@ -3,7 +3,7 @@
 `FreyaClient` opens one live session with a Freya agent or workflow. In `call` mode the agent hears the microphone and plays its voice; in `chat` mode it is text only over the same connection.
 
 ```js
-import { FreyaClient, FreyaEvent } from "@freya/agent-sdk";
+import { FreyaClient, FreyaEvent } from "@freyavoice/agent-sdk";
 
 const client = new FreyaClient({
   baseUrl: "https://app.freyavoice.ai",
@@ -31,9 +31,10 @@ await client.connect();
 | `baseUrl` | yes | The Freya dashboard the token came from, no trailing slash |
 | `token` | yes | Embed token |
 | `mode` | no | `"call"` (default) or `"chat"` |
-| `customerVariables` | no | Values the workflow reads as customer variables |
+| `customerVariables` | no | Values the workflow reads as customer variables. They come from the browser, so the user can change them: never use them to decide whose data the agent reads |
 | `metadata` | no | Extra key/value pairs sent with the session request |
 | `iceServers` | no | STUN/TURN servers. Leave it out to use the ones the dashboard is configured with; `[]` means none |
+| `logLevel` | no | Console output of the WebRTC layer, default `"warn"`. `"debug"` prints every message of the session, including what was said and tool arguments: only for local debugging |
 
 ## Methods
 

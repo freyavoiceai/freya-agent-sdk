@@ -16,6 +16,41 @@ export interface AuthOptions {
   renewOn?: number[];
   /** Renew a JWT this long before its `exp` (ms, default 60 000; at most a fifth of its lifetime). 0 turns it off. */
   renewBeforeMs?: number;
+  /** A request that has not finished after this long (ms, default 30 000) is aborted. 0 turns it off. */
+  timeoutMs?: number;
+}
+
+// A token or a voice must not cross the network in the clear; only this machine may use plain http.
+const LOOPBACK = /^(http|ws):\/\/(localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|\[::1\])(:\d+)?(\/|$)/i;
+
+/** The service root without trailing slashes; throws unless it is https (or plain http to this machine). */
+export function secureBase(url: string, what: string): string {
+  const base = url.trim().replace(/\/+$/, "");
+  if (/^https:\/\/[^/]/i.test(base) || LOOPBACK.test(base)) return base;
+  throw new Error(`${what} must be an https:// URL (plain http only for localhost): ${base}`);
+}
+
+function headerRecord(headers: RequestInit["headers"]): Record<string, string> {
+  if (!headers) return {};
+  if (typeof Headers !== "undefined" && headers instanceof Headers) {
+    const out: Record<string, string> = {};
+    headers.forEach((value, key) => (out[key] = value));
+    return out;
+  }
+  return Array.isArray(headers) ? Object.fromEntries(headers) : { ...(headers as Record<string, string>) };
+}
+
+/** The caller's signal, plus an abort after `ms`. The timer also covers reading the body. */
+function withTimeout(signal: AbortSignal | null | undefined, ms: number): AbortSignal | undefined {
+  if (ms <= 0) return signal ?? undefined;
+  const ctl = new AbortController();
+  const timeout = new Error(`Request timed out after ${ms} ms`);
+  timeout.name = "TimeoutError";
+  const timer = setTimeout(() => ctl.abort(timeout), ms);
+  (timer as { unref?: () => void }).unref?.();
+  if (signal?.aborted) ctl.abort(signal.reason);
+  else signal?.addEventListener("abort", () => ctl.abort(signal.reason), { once: true });
+  return ctl.signal;
 }
 
 const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -119,7 +154,9 @@ export class TokenKeeper {
     }
     const value = await source({ refresh });
     this.current = value;
-    this.renewAt = renewalTime(value, this.options.renewBeforeMs ?? 60_000);
+    const at = renewalTime(value, this.options.renewBeforeMs ?? 60_000);
+    // already due (a very short token, or a device clock ahead): renewing on every request would not help
+    this.renewAt = at !== null && at > Date.now() ? at : null;
     return value;
   }
 
@@ -128,7 +165,8 @@ export class TokenKeeper {
     const send = (token: string) =>
       this.fetchImpl(url, {
         ...init,
-        headers: { ...(init.headers as Record<string, string> | undefined), Authorization: `Bearer ${token}` },
+        headers: { ...headerRecord(init.headers), Authorization: `Bearer ${token}` },
+        signal: withTimeout(init.signal, this.options.timeoutMs ?? 30_000),
       });
     const first = await this.token();
     const res = await send(first);

@@ -1,12 +1,13 @@
 # Speech: STT, TTS and voice activity
 
 ```js
-import { FreyaSpeech } from "@freya/agent-sdk/speech";
+import { FreyaSpeech } from "@freyavoice/agent-sdk/speech";
 
+// From an app: both URLs point at your backend, which adds the speech key (see tokens-and-security.md).
 const speech = new FreyaSpeech({
-  token: ({ refresh }) => getSpeechToken(refresh),     // see tokens-and-security.md
-  stt: { url: "https://stt.freyavoice.ai", language: "tr" },
-  tts: { url: "https://tts.freyavoice.ai", voice: "zeynep" },
+  token: ({ refresh }) => getSessionToken(refresh),
+  stt: { url: "https://my-backend.example/freya", language: "tr" },
+  tts: { url: "https://my-backend.example/freya", voice: "zeynep" },
 });
 speech.on("tokenRefresh", () => console.log("renewing the speech token"));
 ```
@@ -14,11 +15,12 @@ speech.on("tokenRefresh", () => console.log("renewing the speech token"));
 | Option | Default | Meaning |
 |---|---|---|
 | `token` | required | String, or a function called again with `{ refresh: true }` after 401/403 |
-| `stt.url`, `tts.url` | Freya cloud | Service root without `/v1`; point at your proxy in production |
+| `stt.url`, `tts.url` | Freya cloud | Service root without `/v1`, `https://` (plain http only for localhost). Point both at your proxy in an app: the one token goes to both |
 | `stt.model`, `stt.language` | `freya-stt`, `tr` | |
 | `tts.model`, `tts.voice`, `tts.sampleRate` | `freya-tts`, `zeynep`, `48000` | `sampleRate` is the rate of the PCM the service returns |
 | `fetch` | global `fetch` | Inject one, e.g. `expo/fetch` |
 | `renewOn` | `[401, 403]` | Statuses that renew the token and repeat the request once |
+| `timeoutMs` | `30000` | A request still running after this long is aborted; `0` turns it off |
 
 ## Speech to text, one recording
 
@@ -52,12 +54,12 @@ const pcm = await speech.tts.synthesize("Bonus kartınızın dönem borcu dört 
 await new WebAudioOutput().play(pcm, () => console.log("sound started"));
 ```
 
-Errors throw `SpeechHttpError` (`status`, message) or, after a failed renewal, `SpeechAuthError`.
+A failed request throws `SpeechHttpError` with `status`; its `message` is only the status, and the start of the service's answer is in `body`, so logging the error does not log what the service echoed back.
 
 ## Voice activity
 
 ```js
-import { VoiceActivity } from "@freya/agent-sdk/speech";
+import { VoiceActivity } from "@freyavoice/agent-sdk/speech";
 
 const vad = new VoiceActivity({ startMs: 120, stopMs: 700 });
 vad.on("speechStart", () => bargeIn());

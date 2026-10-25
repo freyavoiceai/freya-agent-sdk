@@ -1,4 +1,4 @@
-import type { TokenKeeper } from "./auth.js";
+import { secureBase, type TokenKeeper } from "./auth.js";
 import { Emitter } from "./emitter.js";
 import { errorFrom, type Pcm } from "./tts.js";
 
@@ -93,7 +93,7 @@ export class FreyaStt {
   readonly language: string;
 
   constructor(private readonly keeper: TokenKeeper, options: SttOptions = {}) {
-    this.url = (options.url ?? DEFAULT_STT_URL).replace(/\/+$/, "").replace(/\/v1$/, "");
+    this.url = secureBase(options.url ?? DEFAULT_STT_URL, "stt.url").replace(/\/v1$/, "");
     this.model = options.model ?? "freya-stt";
     this.language = options.language ?? "tr";
   }
@@ -135,6 +135,7 @@ export class SttStream extends Emitter<SttStreamEvents> {
   private queue: (ArrayBuffer | string)[] = [];
   private open = false;
   private done = false;
+  private closed = false;
 
   constructor(private readonly ws: WebSocketLike, config: Record<string, unknown>) {
     super();
@@ -148,24 +149,28 @@ export class SttStream extends Emitter<SttStreamEvents> {
     };
     ws.onmessage = (ev) => {
       if (typeof ev.data !== "string") return;
-      let msg: { type?: string; text?: string; message?: string };
+      let msg: { type?: unknown; text?: unknown; message?: unknown };
       try {
         msg = JSON.parse(ev.data);
       } catch {
         return;
       }
-      if ((msg.type === "partial" || msg.type === "final") && msg.text) {
-        this.emit("partial", { text: msg.text, final: msg.type === "final" });
+      if (!msg || typeof msg !== "object") return;
+      const text = typeof msg.text === "string" ? msg.text : "";
+      if ((msg.type === "partial" || msg.type === "final") && text) {
+        this.emit("partial", { text, final: msg.type === "final" });
       } else if (msg.type === "result") {
         this.done = true;
-        this.emit("result", { text: (msg.text ?? "").trim() });
+        this.emit("result", { text: text.trim() });
         ws.close();
       } else if (msg.type === "error") {
-        this.emit("error", { message: msg.message ?? "STT error" });
+        this.emit("error", { message: typeof msg.message === "string" ? msg.message : "STT error" });
       }
     };
     ws.onerror = () => this.emit("error", { message: "STT connection failed" });
     ws.onclose = () => {
+      this.open = false;
+      this.closed = true;
       if (!this.done) this.emit("error", { message: "STT connection closed before the result" });
       this.emit("close", {});
     };
@@ -175,14 +180,14 @@ export class SttStream extends Emitter<SttStreamEvents> {
   send(frame: Int16Array | ArrayBuffer): void {
     const buf = frame instanceof ArrayBuffer ? frame : (frame.buffer.slice(frame.byteOffset, frame.byteOffset + frame.byteLength) as ArrayBuffer);
     if (this.open) this.ws.send(buf);
-    else this.queue.push(buf);
+    else if (!this.closed) this.queue.push(buf);
   }
 
   /** The speaker is done: the service sends the final result, then the socket closes. */
   finish(): void {
     const msg = JSON.stringify({ type: "close" });
     if (this.open) this.ws.send(msg);
-    else this.queue.push(msg);
+    else if (!this.closed) this.queue.push(msg);
   }
 
   cancel(): void {
