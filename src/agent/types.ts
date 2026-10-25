@@ -37,6 +37,11 @@ export interface FreyaClientConfig {
    * message of the session, including what the user and the agent said and tool arguments.
    */
   logLevel?: "none" | "error" | "warn" | "info" | "debug";
+  /**
+   * `connect()` gives up when the WebRTC handshake has not finished after this long (ms, default
+   * 30 000). The microphone permission prompt does not count. 0 turns it off.
+   */
+  connectTimeoutMs?: number;
 }
 
 /* ------------------------------------------------------------------ */

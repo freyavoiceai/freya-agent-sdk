@@ -25,7 +25,9 @@ const noDaily = {
   },
 };
 
-const shared = { bundle: true, sourcemap: true, target: "es2020", logLevel: "info", metafile: true, plugins: [noDaily] };
+const { version } = JSON.parse(readFileSync(resolve(here, "package.json"), "utf8"));
+const banner = { js: `/*! Freya Agent SDK ${version} | Apache-2.0 | bundled third-party code: THIRD_PARTY_NOTICES.txt */` };
+const shared = { bundle: true, sourcemap: true, target: "es2020", logLevel: "info", metafile: true, plugins: [noDaily], banner };
 
 const results = [
   // everything: agents (WebRTC and REST) and speech
@@ -46,16 +48,30 @@ for (const { metafile } of results) {
     if (m) packages.set(m[1], resolve(here, "node_modules", m[1]));
   }
 }
+const licenseFile = (dir) => {
+  const file = readdirSync(dir).find((f) => /^licen[cs]e(\.(md|txt))?$/i.test(f));
+  return file && readFileSync(join(dir, file), "utf8").trim();
+};
+// @pipecat-ai/client-js ships no license file. Its sources say "Copyright (c) 2024, Daily", BSD-2-Clause,
+// the license and holder of its sibling small-webrtc-transport, whose file carries the full text.
+const missingLicense = {
+  "@pipecat-ai/client-js": () => licenseFile(resolve(here, "node_modules/@pipecat-ai/small-webrtc-transport")),
+};
+// Code inside a package that has its own license.
+const embedded = {
+  "@pipecat-ai/small-webrtc-transport": () =>
+    "It includes wavtools, adapted from openai-realtime-console (https://github.com/openai/openai-realtime-console):\n\n" +
+    readFileSync(resolve(here, "licenses/openai-realtime-console.txt"), "utf8").trim(),
+};
 const notices = [...packages]
   .sort(([a], [b]) => a.localeCompare(b))
   .map(([name, dir]) => {
     const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-    const file = readdirSync(dir).find((f) => /^licen[cs]e(\.(md|txt))?$/i.test(f));
-    // Pipecat packages ship no license file; their sources carry "Copyright (c) 2024, Daily", BSD-2-Clause.
-    const text = file
-      ? readFileSync(join(dir, file), "utf8").trim()
-      : `Copyright (c) 2024, Daily\n\nSPDX-License-Identifier: ${pkg.license}\nhttps://spdx.org/licenses/${pkg.license}.html`;
-    return `${name}@${pkg.version} (${pkg.license})\n\n${text}`;
+    const text = licenseFile(dir) ?? missingLicense[name]?.();
+    // a license we cannot reproduce must stop the build, not ship without its notice
+    if (!text) throw new Error(`${name} is bundled but has no license text: add it to missingLicense in build.mjs`);
+    const extra = embedded[name] ? `\n\n${embedded[name]()}` : "";
+    return `${name}@${pkg.version} (${pkg.license})\n\n${text}${extra}`;
   });
 writeFileSync(
   out("THIRD_PARTY_NOTICES.txt"),

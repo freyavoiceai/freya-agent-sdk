@@ -9,7 +9,7 @@ A long-lived Freya key never ships inside an app. Your backend keeps it and give
 | Workspace API key with `calls:web-token` | your backend | mint embed tokens | until revoked |
 | Workspace API key with `calls:chat-message` | your backend | call `/api/v2/chat/*` (`AgentChat`) | until revoked |
 | Speech (model) key | your backend | call Freya STT and TTS | until revoked |
-| Embed token | the app | start one WebRTC session with one agent, from one origin | 60 to 3600 s (default 3600) |
+| Embed token | the app | start WebRTC sessions with one agent | 60 to 3600 s (default 3600; ask for less) |
 | Your own session token | the app | call your backend, which adds the Freya key | your choice |
 
 ## WebRTC: embed tokens
@@ -30,7 +30,9 @@ Content-Type: application/json
 
 - `allowedOrigin` must be `https://` except for localhost.
 - A workflow id is accepted; the token always carries the agent's id.
-- The token is only valid for `/api/token/webrtc` (starting the call). It does not work for `AgentChat` or for speech.
+- The token is only valid for `/api/token/webrtc` (starting the call) and `/api/token/webrtc/ice-servers`. It does not work for `AgentChat` or for speech.
+- It is a bearer token: whoever holds it can start calls with that agent until it expires. The origin check stops other web pages, not a script outside a browser. Mint one per call with a short `ttlSeconds` (60 to 300).
+- `customerVariables` and `metadata` come from the app, so a user can change them. Do not let the agent's tools treat them as proof of who the caller is.
 
 The app passes it to `new FreyaClient({ baseUrl, token })`. A call that is already connected keeps running when the token expires; mint a new one for the next call.
 

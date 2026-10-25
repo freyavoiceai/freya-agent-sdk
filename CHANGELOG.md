@@ -4,6 +4,35 @@ All notable changes to this package. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-25
+
+First version on npm, after a second security and quality review.
+
+### Added
+- `FreyaClient` option `connectTimeoutMs` (default 30 s): `connect()` gives up on a handshake that does not finish.
+- Published to npm as `@freyavoice/agent-sdk` with provenance; the bundles carry a license banner and the release attaches `THIRD_PARTY_NOTICES.txt`.
+
+### Changed
+- `AgentChat` waits up to 75 s for a turn by default (was 30 s), since the dashboard waits up to 70 s for the agent.
+- `connect()` returns without a session, instead of throwing, when `disconnect()` comes during the handshake.
+- `SpeechReader`: without `fetchMissing`, a lost chunk is skipped after one `gapMs`, as documented (it waited `gapMs × resendTries`). `sentenceSilent` now fires in the sentence's turn. `stop()` stops the output only while this reader is playing.
+- A dot after an abbreviation (`Dr.`, `vb.`), an initial, an ordinal (`3. taksit`) or a list number no longer ends a sentence.
+
+### Fixed
+- Text with a long run of `.` `!` `?` froze the app: the sentence scan took seconds (minutes for repeated chunks). The scan no longer backtracks, the buffer stays small, and a sentence over 1000 characters is cut at a space.
+- `FreyaClient.connect()` never settled when the user denied the microphone; it rejects with the browser's `NotAllowedError` and the client can connect again.
+- Hanging up, calling again and hanging up quickly left the second call connected with the microphone open. Hanging up while the browser's microphone prompt is open now also lets the microphone go.
+- Requests followed redirects, so a redirecting server could send the voice or a message to another host, even over plain http, and its answer was used. Requests now ask fetch not to follow them, and an answer that came through one is refused (React Native's fetch still follows a redirect before the SDK can refuse it).
+- On React Native, `stt.transcribe` with bytes failed with an unclear error; it now says to pass a file reference.
+- `SpeechReader` voiced "undefined" for a chunk without text, ran whole-sentence chunks together ("Merhaba.Size nasıl…") and read nothing until the answer ended; asked `fetchMissing` many times for one chunk and waited forever on one that never settled; kept every sentence's audio in memory; dropped a chunk pushed after the end silently; accepted `"1e0"` as a `seq`.
+- `AgentChat` lost the conversation the server had started when a first turn failed, so the next message started a second one.
+- A token function returning nothing gave a cryptic error (a trailing newline is now trimmed), and a token with invalid characters appeared in the error message. Both throw a `SpeechAuthError` that does not repeat the token.
+- Each request left a listener on the caller's `AbortSignal`.
+- `VoiceActivity` never detected speech when an option was passed as `undefined`.
+- Word timing read a date such as `25.10.2026` as one large number.
+- `THIRD_PARTY_NOTICES.txt` lacked the OpenAI MIT license of the wavtools code inside small-webrtc-transport and the BSD-2-Clause text for `@pipecat-ai/client-js`; the build now fails when a bundled package has no license text.
+- Install instructions pointed at the git repository.
+
 ## [0.2.0] - 2026-10-25
 
 Hardened for the first npm release (security and robustness review).
@@ -38,7 +67,7 @@ Hardened for the first npm release (security and robustness review).
 First internal release.
 
 ### Added
-- `FreyaClient`: live voice or text session with a Freya agent or workflow over WebRTC (from `freya-dashboard/packages/freya-client` 0.3.0).
+- `FreyaClient`: live voice or text session with a Freya agent or workflow over WebRTC (from the dashboard's embedded client 0.3.0).
 - `AgentChat`: turn-by-turn agent conversation over `/api/v2/chat/message` and `/api/v2/chat/end`, with `workflowId` or `agentId`.
 - `FreyaSpeech`: speech to text (one request, or live over a WebSocket) and text to speech.
 - `SpeechReader`: reads an answer arriving in chunks; reorders, refetches a lost chunk, retries TTS once, splits a long first sentence, estimates word timing, supports barge-in.

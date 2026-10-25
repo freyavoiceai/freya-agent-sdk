@@ -34,6 +34,10 @@ export class NativeMicManager {
 
   async initialize(): Promise<void> {
     if (!this._enableMic) return;
+    // Pipecat may ask twice (FreyaClient.connect, then its own connect): keep the live track
+    // instead of opening a second one that nothing would stop.
+    if (this._micTrack?.readyState === "live") return;
+    this._micTrack?.stop();
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     this._micTrack = stream.getAudioTracks()[0];
     this._micEnabled = true;

@@ -1,5 +1,5 @@
 import { TokenKeeper, secureBase, type FetchLike, type TokenSource } from "../speech/auth.js";
-import { errorFrom } from "../speech/tts.js";
+import { SpeechHttpError } from "../speech/tts.js";
 
 export interface AgentChatConfig {
   /** Freya dashboard, e.g. https://app.freyavoice.ai or https://tr-app.freyavoice.ai, or a backend that proxies it. */
@@ -13,7 +13,10 @@ export interface AgentChatConfig {
   workspaceId?: string;
   fetch?: FetchLike;
   renewOn?: number[];
-  /** Abort a turn after this long (ms, default 30 000). 0 turns it off. */
+  /**
+   * Abort a turn after this long (ms, default 75 000). The dashboard waits up to 70 s for the
+   * agent, so a shorter limit gives up on turns that would still have answered. 0 turns it off.
+   */
   timeoutMs?: number;
 }
 
@@ -39,7 +42,7 @@ export class AgentChat {
 
   constructor(private readonly config: AgentChatConfig & ({ workflowId: string } | { agentId: string })) {
     this.baseUrl = secureBase(config.baseUrl, "baseUrl");
-    this.keeper = new TokenKeeper({ token: config.token, fetch: config.fetch, renewOn: config.renewOn, timeoutMs: config.timeoutMs });
+    this.keeper = new TokenKeeper({ token: config.token, fetch: config.fetch, renewOn: config.renewOn, timeoutMs: config.timeoutMs ?? 75_000 });
   }
 
   get callId(): string | null {
@@ -94,7 +97,20 @@ export class AgentChat {
       body: JSON.stringify(body),
       signal,
     });
-    if (!res.ok) throw await errorFrom(res, "Agent chat");
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      // a first turn that timed out on the server has still started the conversation: keep it,
+      // so the next message continues it instead of starting a second one
+      if (!this._callId) {
+        try {
+          const id = (JSON.parse(text) as { data?: { result?: { callId?: unknown } } })?.data?.result?.callId;
+          if (typeof id === "string" && id) this._callId = id;
+        } catch {
+          // not JSON
+        }
+      }
+      throw new SpeechHttpError(res.status, `Agent chat ${res.status}`, text.slice(0, 200));
+    }
     const json = (await res.json()) as { data?: { result?: Record<string, unknown> } };
     return json.data?.result ?? {};
   }

@@ -44,7 +44,7 @@ cancelButton.onclick = () => stream.cancel();
 ```
 
 - Frames sent before the socket opens are queued.
-- The token goes in an `Authorization` header, which React Native and Node support and browsers do not; from a browser, point `stt.url` at a proxy. You can also pass `createWebSocket(url, headers)` to build the socket yourself.
+- The token goes in an `Authorization` header, which React Native's `WebSocket` sends. Browsers cannot send it, and Node's built-in `WebSocket` drops it: from a browser, point `stt.url` at a proxy; in Node, pass `createWebSocket`, for example with the `ws` package: `(url, headers) => new WebSocket(url, { headers })`.
 
 ## Text to speech
 

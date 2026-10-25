@@ -50,7 +50,8 @@ const LOG_LEVELS = { none: LogLevel.NONE, error: LogLevel.ERROR, warn: LogLevel.
  */
 export class FreyaClient {
   // iceServers stays optional: an omitted option asks the backend, an explicit [] disables.
-  private _config: Omit<Required<FreyaClientConfig>, "iceServers" | "logLevel"> & Pick<FreyaClientConfig, "iceServers" | "logLevel">;
+  private _config: Omit<Required<FreyaClientConfig>, "iceServers" | "logLevel" | "connectTimeoutMs"> &
+    Pick<FreyaClientConfig, "iceServers" | "logLevel" | "connectTimeoutMs">;
   private _pc: PipecatClient | null = null;
   private _pendingPc: PipecatClient | null = null;
   // Set before the first await so disconnect() and a second connect() see it.
@@ -115,98 +116,124 @@ export class FreyaClient {
     }
     const attempt = new AbortController();
     this._connecting = attempt;
-
-    // Without a relay the browser offers only host candidates, which the agent
-    // cannot reach; ask the backend for one rather than depending on the agent's.
-    // Supplied wins, including an explicit [] meaning "no servers"; only an
-    // omitted option asks the backend.
-    const iceServers = this._config.iceServers !== undefined
-      ? this._config.iceServers
-      : await this._fetchIceServers(attempt.signal);
-    if (attempt.signal.aborted) {
-      // Only this attempt's controller: a replacement connect() may already own the field.
-      if (this._connecting === attempt) this._connecting = null;
-      return;
-    }
-
-    // Pipecat logs at debug by default, which prints the whole conversation to the console.
-    logger.setLevel(LOG_LEVELS[this._config.logLevel ?? "warn"]);
-
-    const transport = new SmallWebRTCTransport({
-      ...(iceServers && iceServers.length > 0 ? { iceServers } : {}),
-      waitForICEGathering: true,
-      // Use native getUserMedia instead of @daily-co/daily-js so the ~10 MB
-      // Daily call-machine-object-bundle is never downloaded.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      mediaManager: new NativeMicManager(this._config.mode === "call") as any,
-    });
-
-    // attemptReconnection(true) recreates the RTCPeerConnection and sends
-    // restart_pc=true — the server treats it as a fresh session. Suppress it
-    // and surface as a clean disconnect instead (matching the internal
-    // use-small-webrtc-transport.ts behaviour).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const t = transport as any;
-    const _origReconnect = t.attemptReconnection?.bind(transport);
-    if (_origReconnect) {
-      t.attemptReconnection = async (recreate = false) => {
-        if (recreate) {
-          await t.stop?.();
-          return;
-        }
-        await _origReconnect(recreate);
-      };
-    }
-
-    const pc = new PipecatClient({
-      enableCam: false,
-      enableMic: this._config.mode === "call",
-      transport,
-    });
-
-    // Wire up events before connecting so none are missed.
-    this._bindEvents(pc);
-
-    // Autoplay remote audio when a track arrives. Skip the local mic track
-    // (SmallWebRTC fires TrackStarted for local mic too with participant.local=true).
-    pc.on(RTVIEvent.TrackStarted, (track: MediaStreamTrack, participant?: { local?: boolean }) => {
-      if (track.kind === "audio" && !participant?.local) {
-        this._attachAudio(track);
-      }
-    });
-
-    // Track in-flight PC so disconnect() can abort a pending handshake.
-    this._pendingPc = pc;
+    let pc: PipecatClient | null = null;
+    let mic: NativeMicManager | null = null;
+    // Before the peer connection exists the transport's stop() returns early and leaves the
+    // microphone open, so the track is stopped here too.
+    const release = async () => {
+      try { await pc?.disconnect(); } catch { /* best-effort */ }
+      await mic?.disconnect();
+    };
     try {
-      await pc.connect({
-        webrtcRequestParams: {
-          endpoint: `${this._config.baseUrl}/api/token/webrtc`,
-          headers: new Headers({
-            Authorization: `Bearer ${this._config.token}`,
-          }),
-          requestData: {
-            ...this._config.metadata,
-            customerVariables: this._config.customerVariables,
-            callType: this._config.mode,
-          },
-        },
+      // Without a relay the browser offers only host candidates, which the agent
+      // cannot reach; ask the backend for one rather than depending on the agent's.
+      // Supplied wins, including an explicit [] meaning "no servers"; only an
+      // omitted option asks the backend.
+      const iceServers = this._config.iceServers !== undefined
+        ? this._config.iceServers
+        : await this._fetchIceServers(attempt.signal);
+      if (attempt.signal.aborted) return;
+
+      // Pipecat logs at debug by default, which prints the whole conversation to the console.
+      logger.setLevel(LOG_LEVELS[this._config.logLevel ?? "warn"]);
+
+      mic = new NativeMicManager(this._config.mode === "call");
+      const transport = new SmallWebRTCTransport({
+        ...(iceServers && iceServers.length > 0 ? { iceServers } : {}),
+        waitForICEGathering: true,
+        // Use native getUserMedia instead of @daily-co/daily-js so the ~10 MB
+        // Daily call-machine-object-bundle is never downloaded.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        mediaManager: mic as any,
       });
+
+      // attemptReconnection(true) recreates the RTCPeerConnection and sends
+      // restart_pc=true — the server treats it as a fresh session. Suppress it
+      // and surface as a clean disconnect instead (matching the internal
+      // use-small-webrtc-transport.ts behaviour).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const t = transport as any;
+      const _origReconnect = t.attemptReconnection?.bind(transport);
+      if (_origReconnect) {
+        t.attemptReconnection = async (recreate = false) => {
+          if (recreate) {
+            await t.stop?.();
+            return;
+          }
+          await _origReconnect(recreate);
+        };
+      }
+
+      const client = new PipecatClient({
+        enableCam: false,
+        enableMic: this._config.mode === "call",
+        transport,
+      });
+      pc = client;
+
+      // Wire up events before connecting so none are missed.
+      this._bindEvents(client);
+
+      // Autoplay remote audio when a track arrives. Skip the local mic track
+      // (SmallWebRTC fires TrackStarted for local mic too with participant.local=true).
+      client.on(RTVIEvent.TrackStarted, (track: MediaStreamTrack, participant?: { local?: boolean }) => {
+        if (track.kind === "audio" && !participant?.local) {
+          this._attachAudio(track);
+        }
+      });
+
+      // Track in-flight PC so disconnect() can abort a pending handshake.
+      this._pendingPc = client;
+      // Pipecat's own connect() asks for the microphone outside its error handling, so a denied
+      // prompt would leave it pending forever. Asked here, the denial rejects this connect().
+      if (client.needsInit()) await client.initDevices();
+      if (attempt.signal.aborted) {
+        await release();
+        return;
+      }
+      await this._withTimeout(
+        client.connect({
+          webrtcRequestParams: {
+            endpoint: `${this._config.baseUrl}/api/token/webrtc`,
+            headers: new Headers({
+              Authorization: `Bearer ${this._config.token}`,
+            }),
+            requestData: {
+              ...this._config.metadata,
+              customerVariables: this._config.customerVariables,
+              callType: this._config.mode,
+            },
+          },
+        }),
+        this._config.connectTimeoutMs ?? 30_000,
+      );
       // disconnect() came while the handshake was running: do not resurrect the session.
       if (attempt.signal.aborted) {
-        try { await pc.disconnect(); } catch { /* best-effort */ }
+        await release();
         return;
       }
       // Only assign after a successful handshake so a failed connect()
       // call doesn't leave this._pc set and block retries.
-      this._pc = pc;
+      this._pc = client;
     } catch (e) {
-      try { await pc.disconnect(); } catch { /* best-effort */ }
-      this._cleanup();
+      await release();
+      // disconnect() already cleaned up, and a newer connect() may own the fields by now.
+      if (attempt.signal.aborted) return;
+      if (this._connecting === attempt) this._cleanup();
       throw e;
     } finally {
-      this._pendingPc = null;
+      if (pc && this._pendingPc === pc) this._pendingPc = null;
       if (this._connecting === attempt) this._connecting = null;
     }
+  }
+
+  private _withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+    if (ms <= 0) return work;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`Connection timed out after ${ms} ms`)), ms);
+    });
+    return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
   }
 
   /** Disconnect the current session. Safe to call multiple times. */
@@ -255,7 +282,7 @@ export class FreyaClient {
 
   /** Returns the current transport state. */
   get state(): string {
-    return this._pc?.state ?? "disconnected";
+    return this._pc?.state ?? this._pendingPc?.state ?? "disconnected";
   }
 
   /* ---------------------------------------------------------------- */
@@ -355,6 +382,8 @@ export class FreyaClient {
     try {
       const res = await fetch(`${this._config.baseUrl}/api/token/webrtc/ice-servers`, {
         headers: new Headers({ Authorization: `Bearer ${this._config.token}` }),
+        // a redirect could carry the request, and the servers it trusts, to another host
+        redirect: "error",
         signal,
       });
       if (!res.ok) return undefined;

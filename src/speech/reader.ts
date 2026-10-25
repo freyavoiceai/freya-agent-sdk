@@ -1,6 +1,6 @@
 import type { AudioOutput } from "./audio.js";
 import { Emitter } from "./emitter.js";
-import { SentenceAssembler, firstCut } from "./text.js";
+import { SentenceAssembler, firstCut, isEndMark } from "./text.js";
 import type { FreyaTts, Pcm } from "./tts.js";
 import { wordTimings, type WordTiming } from "./words.js";
 
@@ -63,17 +63,22 @@ export interface ReaderEvents {
   error: { message: string };
 }
 
-/** A non-negative whole number, also from a numeric string; null for anything else. */
+/** A non-negative whole number, also from a string of digits; null for anything else ("1e0", "0x3"). */
 function wholeNumber(value: unknown): number | null {
-  const n = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  const n = typeof value === "string" && /^\s*\d+\s*$/.test(value) ? Number(value) : value;
   return typeof n === "number" && Number.isSafeInteger(n) && n >= 0 ? n : null;
 }
+
+// a sentence's sound is let go once it has played; a long answer would otherwise keep all of it
+const PLAYED: Promise<null> = Promise.resolve(null);
 
 interface Item {
   index: number;
   text: string;
   ready: Promise<Pcm | null>;
   resolve: (pcm: Pcm | null) => void;
+  /** Why TTS gave no sound, told when the sentence's turn comes. */
+  failed?: string;
 }
 
 /**
@@ -102,6 +107,9 @@ export class SpeechReader extends Emitter<ReaderEvents> {
   private busy = false;
   private finished = false;
   private wordTimers: ReturnType<typeof setTimeout>[] = [];
+  private playing = false;
+  private fetching = false;
+  private lastChar = "";
   private readonly stats: ReaderSummary = { chunks: 0, sentences: 0, late: 0, lost: 0, skipped: 0, silent: 0 };
 
   constructor(private readonly tts: FreyaTts, private readonly output: AudioOutput, options: ReaderOptions = {}) {
@@ -124,7 +132,18 @@ export class SpeechReader extends Emitter<ReaderEvents> {
 
   /** The single input: hand every chunk here as it arrives, in any order. */
   push(chunk: Chunk): void {
-    if (this.stopped || this.textClosed) return;
+    if (this.stopped) return;
+    if (!chunk || typeof chunk !== "object") {
+      this.emit("error", { message: "Chunk dropped: not an object" });
+      return;
+    }
+    if (this.textClosed) {
+      // a queue may deliver the last chunk twice: a repeat, not an error
+      const repeat = wholeNumber(chunk.seq);
+      if (repeat !== null && repeat < this.next) this.emit("chunk", { seq: repeat, state: "duplicate" });
+      else this.emit("error", { message: "Chunk dropped: the answer has already ended" });
+      return;
+    }
     const seq = chunk.seq === undefined ? this.autoSeq : wholeNumber(chunk.seq);
     if (seq === null) {
       this.emit("error", { message: `Chunk dropped: seq ${JSON.stringify(chunk.seq)} is not a whole number` });
@@ -156,7 +175,8 @@ export class SpeechReader extends Emitter<ReaderEvents> {
     this.abort.abort();
     this.clearGap();
     this.clearWords();
-    this.output.stop();
+    // the output may be shared: another reader's sentence is not ours to cut
+    if (this.playing) this.output.stop();
   }
 
   private take(c: Chunk & { seq: number }, resent: boolean): void {
@@ -182,8 +202,15 @@ export class SpeechReader extends Emitter<ReaderEvents> {
   private accept(c: Chunk & { seq: number }, state: "ok" | "late"): void {
     this.stats.chunks++;
     this.emit("chunk", { seq: c.seq, state });
-    for (const s of this.asm.feed(c.text)) this.sentence(s);
     this.next = c.seq + 1;
+    if (typeof c.text !== "string") {
+      this.emit("error", { message: `Chunk ${c.seq} has no text` });
+      return;
+    }
+    // chunks that are whole sentences ("Merhaba." then "Size nasıl...") would run together
+    const text = isEndMark(this.lastChar) && /^[A-ZÇĞİÖŞÜ"“(]/.test(c.text) ? ` ${c.text}` : c.text;
+    if (text) this.lastChar = text[text.length - 1];
+    for (const s of this.asm.feed(text)) this.sentence(s);
   }
 
   private drain(): void {
@@ -214,13 +241,19 @@ export class SpeechReader extends Emitter<ReaderEvents> {
   private recover(): void {
     this.gap = null;
     if (this.stopped || this.textClosed) return;
+    // a fetch is still running: look again once it has had its time
+    if (this.fetching) {
+      this.armGap();
+      return;
+    }
     const seq = this.next;
     const attempt = (this.tries.get(seq) ?? 0) + 1;
     this.tries.set(seq, attempt);
     if (attempt === 1) this.stats.lost++;
     this.emit("chunkMissing", { seq, attempt });
     const giveUp = () => {
-      if (attempt < this.o.resendTries) {
+      // without fetchMissing nothing would bring it: skip at once
+      if (this.o.fetchMissing && attempt < this.o.resendTries) {
         this.armGap();
         return;
       }
@@ -234,16 +267,38 @@ export class SpeechReader extends Emitter<ReaderEvents> {
       giveUp();
       return;
     }
-    this.o.fetchMissing(seq, this.abort.signal).then(
-      (c) => {
-        if (this.stopped || this.textClosed || seq < this.next) return;
-        this.emit("chunkRecovered", { seq });
-        this.take({ ...c, seq }, true);
-      },
-      () => {
-        if (!this.stopped) giveUp();
-      },
-    );
+    // one fetch at a time, and one that hangs counts as failed after gapMs
+    this.fetching = true;
+    const ctl = new AbortController();
+    const onStop = () => ctl.abort();
+    this.abort.signal.addEventListener("abort", onStop, { once: true });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const hung = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        ctl.abort();
+        reject(new Error("fetchMissing timed out"));
+      }, this.o.gapMs);
+    });
+    Promise.race([this.o.fetchMissing(seq, ctl.signal), hung])
+      .finally(() => {
+        clearTimeout(timer);
+        this.abort.signal.removeEventListener("abort", onStop);
+        this.fetching = false;
+      })
+      .then(
+        (c) => {
+          if (this.stopped || this.textClosed || seq < this.next) return;
+          if (!c || typeof c.text !== "string") {
+            giveUp();
+            return;
+          }
+          this.emit("chunkRecovered", { seq });
+          this.take({ ...c, seq }, true);
+        },
+        () => {
+          if (!this.stopped && !this.textClosed && seq === this.next) giveUp();
+        },
+      );
   }
 
   private closeText(): void {
@@ -303,10 +358,7 @@ export class SpeechReader extends Emitter<ReaderEvents> {
         last = err instanceof Error ? err.message : String(err);
       }
     }
-    if (!this.stopped) {
-      this.stats.silent++;
-      this.emit("sentenceSilent", { index: item.index, text: item.text, error: last });
-    }
+    item.failed = last;
     return null;
   }
 
@@ -323,7 +375,13 @@ export class SpeechReader extends Emitter<ReaderEvents> {
     this.busy = true;
     item.ready.then(async (pcm) => {
       if (this.stopped) return;
-      if (pcm) {
+      item.ready = PLAYED;
+      // the resolver holds the first promise, and with it the sound
+      item.resolve = () => {};
+      if (!pcm) {
+        this.stats.silent++;
+        this.emit("sentenceSilent", { index: item.index, text: item.text, error: item.failed ?? "" });
+      } else {
         try {
           await this.play(item, pcm);
         } catch (err) {
@@ -345,14 +403,20 @@ export class SpeechReader extends Emitter<ReaderEvents> {
   private async play(item: Item, pcm: Pcm): Promise<void> {
     const duration = pcm.samples.length / pcm.sampleRate;
     const words = wordTimings(item.text, pcm);
-    const result = await this.output.play(pcm, () => {
-      this.emit("sentenceStart", { index: item.index, text: item.text, words, duration });
-      words.forEach((w, wordIndex) => {
-        this.wordTimers.push(
-          setTimeout(() => this.emit("word", { index: item.index, wordIndex, word: w.word }), w.start * 1000),
-        );
+    this.playing = true;
+    let result: "ended" | "stopped";
+    try {
+      result = await this.output.play(pcm, () => {
+        this.emit("sentenceStart", { index: item.index, text: item.text, words, duration });
+        words.forEach((w, wordIndex) => {
+          this.wordTimers.push(
+            setTimeout(() => this.emit("word", { index: item.index, wordIndex, word: w.word }), w.start * 1000),
+          );
+        });
       });
-    });
+    } finally {
+      this.playing = false;
+    }
     this.clearWords();
     this.emit("sentenceEnd", { index: item.index, text: item.text, interrupted: result === "stopped" });
   }

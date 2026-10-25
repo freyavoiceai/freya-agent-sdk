@@ -34,13 +34,14 @@ await client.connect();
 | `customerVariables` | no | Values the workflow reads as customer variables. They come from the browser, so the user can change them: never use them to decide whose data the agent reads |
 | `metadata` | no | Extra key/value pairs sent with the session request |
 | `iceServers` | no | STUN/TURN servers. Leave it out to use the ones the dashboard is configured with; `[]` means none |
+| `connectTimeoutMs` | no | Give up on a handshake after this long, default 30 000 ms; the microphone prompt does not count. `0` turns it off |
 | `logLevel` | no | Console output of the WebRTC layer, default `"warn"`. `"debug"` prints every message of the session, including what was said and tool arguments: only for local debugging |
 
 ## Methods
 
 | Method | Does |
 |---|---|
-| `connect()` | Starts the session. Throws if one is already open or connecting |
+| `connect()` | Starts the session. Throws if one is already open or connecting, if the user denies the microphone (the browser's `NotAllowedError`), or if the handshake takes longer than `connectTimeoutMs`. Returns without a session when `disconnect()` comes first |
 | `disconnect()` | Ends it; safe to call more than once, also aborts a connect in progress |
 | `sendMessage(text)` | Sends a user text message (both modes) |
 | `mute()` / `unmute()`, `isMicEnabled` | Microphone on or off |

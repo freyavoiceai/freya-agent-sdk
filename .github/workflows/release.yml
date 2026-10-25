@@ -1,28 +1,77 @@
 name: release
 on:
   push:
-    tags: ["v*"]
-permissions:
-  contents: write
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+permissions: {}
 jobs:
-  release:
+  # Builds and checks without write access: devDependencies run here, so no token is around.
+  build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
-          cache: npm
+      - name: Tag is on main and matches package.json and the changelog
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          test "$(node -p "require('./package.json').version")" = "$version"
+          grep -qF "## [$version]" CHANGELOG.md
       - run: npm ci
-      - name: Tag matches package.json
-        run: test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}"
       - run: npm run verify
       - run: npm pack
+      - name: Release notes from the changelog
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v h="## [$version]" 'index($0, h) == 1 {on=1; next} /^## \[/ {on=0} on' CHANGELOG.md > release-notes.md
+          test -s release-notes.md
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          if-no-files-found: error
+          path: |
+            freyavoice-agent-sdk-*.tgz
+            dist/freya-agent-sdk.js
+            dist/THIRD_PARTY_NOTICES.txt
+            release-notes.md
+
+  # Runs only after a maintainer approves it in the protected "npm" environment.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # npm 11.5.1 or newer, for trusted publishing
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Publish to npm with provenance
+        env:
+          # only for the first publish; afterwards npm trusted publishing needs no token
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          tag=latest
+          case "$version" in *-*) tag=next ;; esac
+          npm publish "freyavoice-agent-sdk-$version.tgz" --provenance --access public --tag "$tag"
       - name: GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="${GITHUB_REF_NAME#v}"
-          notes=$(awk -v v="$version" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} on' CHANGELOG.md)
-          gh release create "$GITHUB_REF_NAME" freyavoice-agent-sdk-"$version".tgz dist/freya-agent-sdk.js \
-            --title "$GITHUB_REF_NAME" --notes "$notes"
+          gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --verify-tag \
+            "freyavoice-agent-sdk-$version.tgz" dist/freya-agent-sdk.js dist/THIRD_PARTY_NOTICES.txt \
+            --title "$GITHUB_REF_NAME" --notes-file release-notes.md

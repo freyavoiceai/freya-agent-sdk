@@ -13,13 +13,11 @@
 
 ## Install
 
-The package is not on npm yet. Install it from the GitHub repository; it builds on install:
-
 ```bash
-npm install github:freyavoiceai/freya-agent-sdk
+npm install --save-exact @freyavoice/agent-sdk
 ```
 
-Once versions are tagged, pin one with `#v<x.y.z>` at the end.
+Every version is published from this repository's release workflow with npm provenance (`npm audit signatures` checks it). Pin the exact version and update on purpose.
 
 | Entry point | Contains | Use it for |
 |---|---|---|
@@ -50,6 +48,10 @@ The same agent without WebRTC: speech to text, one REST turn, the answer read al
 ```js
 import { AgentChat, FreyaSpeech, WebAudioOutput } from "@freyavoice/agent-sdk";
 
+// Browsers start sound only after a user gesture: unlock the output in the tap handler.
+const output = new WebAudioOutput();
+await output.unlock();
+
 // Your backend checks the session token and adds the Freya keys; the app never holds them.
 const backend = "https://my-backend.example/freya";
 const speech = new FreyaSpeech({ token: sessionToken, stt: { url: backend }, tts: { url: backend } });
@@ -57,7 +59,7 @@ const chat = new AgentChat({ baseUrl: backend, token: sessionToken, workflowId }
 
 const { text } = await speech.stt.transcribe(recording);
 const { reply, ended } = await chat.send(text);
-speech.reader(new WebAudioOutput()).push({ text: reply, final: true });
+speech.reader(output).push({ text: reply, final: true });
 ```
 
 ## Guides
@@ -103,7 +105,7 @@ npm run verify   # lint, typecheck, tests with coverage, build, smoke test, pack
 | `npm run check:package` | publint and Are The Types Wrong on the packed package |
 | `npm run docs` | TypeDoc API reference into `docs/api/` |
 
-The agent client (`src/agent/client.ts`, `types.ts`, `native-media-manager.ts`) was copied from `freya-dashboard/packages/freya-client`, which the dashboard still serves as `/freya-client.js`. Keep the two in step until the dashboard uses this package. See [CONTRIBUTING.md](CONTRIBUTING.md) for the release steps.
+The agent client (`src/agent/client.ts`, `types.ts`, `native-media-manager.ts`) started as the client the Freya dashboard serves as `/freya-client.js`. Keep the two in step until the dashboard uses this package. See [CONTRIBUTING.md](CONTRIBUTING.md) for the release steps.
 
 ## License
 

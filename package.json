@@ -1,9 +1,8 @@
 {
   "name": "@freyavoice/agent-sdk",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Freya Agent SDK for web, React Native and Node: agents over WebRTC or REST, speech-to-text, text-to-speech",
   "license": "Apache-2.0",
-  "private": true,
   "author": "Freya Voice AI",
   "repository": {
     "type": "git",
@@ -49,6 +48,10 @@
     },
     "./package.json": "./package.json"
   },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "files": [
     "dist",
     "README.md",
@@ -73,7 +76,7 @@
     "@eslint/js": "^9.39.5",
     "@pipecat-ai/client-js": "^1.13.1",
     "@pipecat-ai/small-webrtc-transport": "^1.10.8",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^4.1.12",
     "esbuild": "^0.28.2",
     "eslint": "^9.39.5",
     "jsdom": "^27.4.0",
@@ -81,6 +84,6 @@
     "typedoc": "^0.28.20",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.71.2",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   }
 }
