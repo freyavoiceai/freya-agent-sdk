@@ -78,7 +78,7 @@
     "@pipecat-ai/small-webrtc-transport": "^1.10.8",
     "@vitest/coverage-v8": "^4.1.12",
     "esbuild": "^0.28.2",
-    "eslint": "^9.39.5",
+    "eslint": "^10.13.0",
     "jsdom": "^27.4.0",
     "publint": "^0.3.25",
     "typedoc": "^0.28.20",
