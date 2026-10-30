@@ -4,6 +4,11 @@ All notable changes to this package. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-30
+
+### Fixed
+- README: the status section named version 0.2.0; it now points to the changelog instead of a version number.
+
 ## [0.3.0] - 2026-10-30
 
 ### Added
