@@ -4,6 +4,13 @@ All notable changes to this package. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-30
+
+### Added
+- `ConversationRecorder`: keeps a speech-only conversation (the customer's dictation, what STT heard, what was sent and whether it was corrected, the answers and both voices) and files it in the dashboard as one call through the import endpoint, with a merged recording the dashboard can play. See [Recording a conversation](docs/recording.md).
+- `pcmFromWav()`: 16-bit PCM from WAV bytes.
+- `examples/token-backend.mjs`: `/freya/api/v2/call/import`, which checks a recording archive and forwards it with `FREYA_IMPORT_KEY`.
+
 ## [0.2.2] - 2026-10-25
 
 ### Added

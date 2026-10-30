@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 
 const speech = await import("../dist/speech.mjs");
-for (const name of ["FreyaSpeech", "SpeechReader", "WebAudioOutput", "VoiceActivity", "SpeechAuthError", "SpeechHttpError", "wavFromPcm", "wordTimings"]) {
+for (const name of ["FreyaSpeech", "SpeechReader", "WebAudioOutput", "VoiceActivity", "SpeechAuthError", "SpeechHttpError", "wavFromPcm", "wordTimings", "ConversationRecorder", "RecordingError"]) {
   assert.ok(speech[name], `speech bundle is missing ${name}`);
 }
 const s = new speech.FreyaSpeech({ token: "t" });

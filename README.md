@@ -10,6 +10,7 @@
 | `FreyaSpeech.tts` | Text to speech | REST |
 | `SpeechReader` | Reads an answer aloud as it arrives in chunks: orders them, recovers a lost one, plays sentence by sentence | REST |
 | `VoiceActivity` | "The user is speaking" from microphone frames | local |
+| `ConversationRecorder` | Files a speech-only conversation in the dashboard as a call: transcript and recording | REST, through your backend |
 
 ## Install
 
@@ -72,6 +73,7 @@ speech.reader(output).push({ text: reply, final: true });
 | [Agent chat over REST](docs/agent-chat-rest.md) | `AgentChat`: turns, customer variables, ending a call |
 | [Speech](docs/speech.md) | STT (REST and live), TTS, voice activity |
 | [Reading a chunked answer](docs/reading-chunked-answers.md) | `SpeechReader`: order, lost chunks, retries, word timing, barge-in |
+| [Recording a conversation](docs/recording.md) | `ConversationRecorder`: what is stored, sending, the backend route |
 | [React Native](docs/react-native.md) | What runs on React Native today and how to wire audio |
 | [Events and errors](docs/events-and-errors.md) | Every event and error class, and what to do with each |
 

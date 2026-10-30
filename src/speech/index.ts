@@ -56,6 +56,14 @@ export class FreyaSpeech extends Emitter<FreyaSpeechEvents> {
 
 export { SpeechAuthError, TokenKeeper, type AuthOptions, type FetchLike, type TokenSource } from "./auth.js";
 export { WebAudioOutput, type AudioContextLike, type AudioOutput, type BufferSourceLike, type WebAudioOutputOptions } from "./audio.js";
+export {
+  ConversationRecorder,
+  MAX_RECORDING_BYTES,
+  RecordingError,
+  pcmFromWav,
+  type ImportResult,
+  type RecorderOptions,
+} from "./recorder.js";
 export { SpeechReader, type Chunk, type ReaderEvents, type ReaderOptions, type ReaderSummary } from "./reader.js";
 export {
   FreyaStt,
