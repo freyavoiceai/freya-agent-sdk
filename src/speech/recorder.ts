@@ -6,6 +6,8 @@ import { storeZip, type ZipEntry } from "./zip.js";
 
 /** The dashboard's import endpoint refuses a bigger upload. */
 export const MAX_RECORDING_BYTES = 50 * 1024 * 1024;
+/** Room left for calls.json and the archive headers when deciding whether separate tracks fit. */
+const TRACK_HEADROOM = 1024 * 1024;
 
 export interface RecorderOptions {
   /**
@@ -28,7 +30,10 @@ export interface RecorderOptions {
   format?: "form" | "zip";
   /** Rate of the recorded file (default 16 000); every clip is converted to it. */
   sampleRate?: number;
-  /** Also store the customer's and the assistant's audio as separate tracks next to the merged file. */
+  /**
+   * Also store the customer's and the assistant's audio as separate tracks next to the merged file
+   * (default true). Dropped when the three files would not fit the 50 MB limit, so long calls keep the merged file.
+   */
   tracks?: boolean;
   /** The customer number the call is filed under in the dashboard, so it can be searched. */
   customerNumber?: string;
@@ -291,9 +296,11 @@ export class ConversationRecorder {
     const tracks: { track: "single" | "user" | "assistant"; ext: "wav" }[] = [];
     const wav = (samples: Int16Array) => wavFromPcm({ samples, sampleRate: this.rate });
     if (clips.length) {
-      entries.push({ name: `recordings/${this.callId}.wav`, data: wav(mix(clips, start, this.rate)) });
+      const merged = wav(mix(clips, start, this.rate));
+      entries.push({ name: `recordings/${this.callId}.wav`, data: merged });
       tracks.push({ track: "single", ext: "wav" });
-      if (this.options.tracks) {
+      // each track spans the whole call, so the three files take three times the merged size
+      if (this.options.tracks !== false && merged.length * 3 <= MAX_RECORDING_BYTES - TRACK_HEADROOM) {
         entries.push({ name: `recordings/${this.callId}_user.wav`, data: wav(mix(this.userClips, start, this.rate)) });
         entries.push({ name: `recordings/${this.callId}_assistant.wav`, data: wav(mix(this.botClips, start, this.rate)) });
         tracks.push({ track: "user", ext: "wav" }, { track: "assistant", ext: "wav" });

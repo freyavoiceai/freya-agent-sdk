@@ -29,7 +29,7 @@ await rec.send();
 | Call | One call of type `web`, status `ended`, the time it started and ended, `customerNumber` and `externalCallId` if given |
 | Transcript | `User:` and `AI:` lines in time order |
 | Messages | Each turn with its time; a customer turn also carries `heard` (what STT heard) and `edited`, or `typed: true`, or `sent: false` for dictation never sent |
-| Recording | `recordings/<callId>.wav`: both voices on one timeline, 16 kHz mono, which the dashboard plays. `tracks: true` adds `_user` and `_assistant` files |
+| Recording | `recordings/<callId>.wav`: both voices on one timeline, 16 kHz mono. Next to it `_user` and `_assistant` files, so the dashboard plays the customer and the assistant separately; `tracks: false` leaves them out, and they are left out on their own when the three files would pass 50 MB (about 8 minutes) |
 | Metadata | Your `metadata` plus `source: "freya-agent-sdk"` |
 
 Audio goes in as PCM (`{ samples, sampleRate }`) or the bytes of a 16-bit WAV file. On React Native the SDK cannot read a file from its `uri`: read the recording's bytes and pass them.
@@ -43,7 +43,7 @@ Audio goes in as PCM (`{ samples, sampleRate }`) or the bytes of a 16-bit WAV fi
 | resolves | The call is in the dashboard (`skipped: 1` if an earlier attempt got through) |
 | `RecordingError`, `reason: "rejected"` | No call was created. Fix the cause and call `send()` again: the same call is sent |
 | `RecordingError`, `reason: "audio-lost"` | The call exists without its audio. Sending again does not add it |
-| `RecordingError`, `reason: "too-large"` | Over the dashboard's 50 MB limit (about 25 minutes of audio with `tracks: false`); not sent |
+| `RecordingError`, `reason: "too-large"` | Over the dashboard's 50 MB limit (about 25 minutes of audio; past about 8 minutes only the merged file is sent); not sent |
 | `SpeechHttpError` | Your backend or the dashboard answered with an error status |
 
 Nothing is written to the device. If the app must survive a restart before sending, save `rec.archive()` yourself.
