@@ -1,6 +1,7 @@
 // Minimal backend for the SDK: mints embed tokens and proxies chat and speech with keys the app never sees.
 // Environment: FREYA_BASE_URL, FREYA_AGENT_ID, FREYA_WORKFLOW_ID (optional, chat starts with it),
-// FREYA_WEB_TOKEN_KEY (calls:web-token), FREYA_CHAT_KEY (calls:chat-message), FREYA_SPEECH_KEY, APP_ORIGIN.
+// FREYA_WEB_TOKEN_KEY (calls:web-token), FREYA_CHAT_KEY (calls:chat-message), FREYA_SPEECH_KEY, APP_ORIGIN,
+// FREYA_IMPORT_KEY (calls:import, for ConversationRecorder; use a workspace that holds nothing else).
 // Run: DEMO_AUTH=1 node examples/token-backend.mjs (DEMO_AUTH lets any bearer token in; see userOf).
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
@@ -18,6 +19,7 @@ if (!ORIGIN) {
   process.exit(1);
 }
 const MAX_BODY = 10 * 1024 * 1024; // a 30 s recording is about 1 MB
+const MAX_RECORDING = 50 * 1024 * 1024; // the import endpoint's limit
 const UPSTREAM_TIMEOUT_MS = 30_000;
 
 // Who is calling. Replace with your own session check (cookie, JWT, ...) and return the user id,
@@ -31,6 +33,11 @@ function userOf(req) {
 // The customer variables the agent may use come from the session, never from the app.
 function customerVariablesOf(_user) {
   return {};
+}
+
+// The customer number a recording is filed under, from the session too; undefined lets none through.
+function customerNumberOf(_user) {
+  return undefined;
 }
 
 // Calls each user started, so nobody can continue or end someone else's (in memory: one process only).
@@ -58,12 +65,12 @@ class HttpError extends Error {
   }
 }
 
-async function readBody(req) {
+async function readBody(req, limit = MAX_BODY) {
   const parts = [];
   let size = 0;
   for await (const p of req) {
     size += p.length;
-    if (size > MAX_BODY) throw new HttpError(413, "body too large");
+    if (size > limit) throw new HttpError(413, "body too large");
     parts.push(p);
   }
   return Buffer.concat(parts);
@@ -81,14 +88,14 @@ async function readJson(req) {
   throw new HttpError(400, "expected a JSON object");
 }
 
-function upstream(url, key, init) {
+function upstream(url, key, init, timeoutMs = UPSTREAM_TIMEOUT_MS) {
   const secret = env(key);
   if (!secret) throw new HttpError(500, `${key} is not set on the server`);
   return fetch(url, {
     ...init,
     headers: { ...init.headers, Authorization: `Bearer ${secret}` },
     redirect: "error",
-    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 }
 
@@ -178,6 +185,93 @@ async function transcriptions(req, res) {
   await relay(res, await upstream(`${STT}/v1/audio/transcriptions`, "FREYA_SPEECH_KEY", { method: "POST", body: form }));
 }
 
+// Recordings: the archive ConversationRecorder builds is checked here, because the import key could
+// also write agents and workflows. Only calls.json with one web call and that call's WAV files get
+// through, filed under this user's customer number.
+const RECORDING_NAME = /^recordings\/([0-9a-f-]{36})(_user|_assistant)?\.wav$/;
+const CALL_FIELDS = new Set([
+  "id", "externalCallId", "customerNumber", "type", "modality", "status", "endedReason",
+  "startedAt", "endedAt", "transcript", "messages", "metadata", "recordingTracks",
+]);
+
+// The entries of a stored (uncompressed) ZIP, by the names in its central directory, which is what
+// the import endpoint reads. Anything else (compression, a comment, mismatched headers) is refused.
+function storedEntries(zip) {
+  const end = zip.length - 22;
+  if (end < 0 || zip.readUInt32LE(end) !== 0x06054b50) throw new HttpError(400, "not a zip archive without a comment");
+  const count = zip.readUInt16LE(end + 10);
+  let at = zip.readUInt32LE(end + 16);
+  const entries = new Map();
+  for (let i = 0; i < count; i++) {
+    if (at + 46 > zip.length || zip.readUInt32LE(at) !== 0x02014b50) throw new HttpError(400, "malformed archive");
+    const size = zip.readUInt32LE(at + 20);
+    const nameLen = zip.readUInt16LE(at + 28);
+    const name = zip.subarray(at + 46, at + 46 + nameLen).toString("utf8");
+    const local = zip.readUInt32LE(at + 42);
+    if (zip.readUInt16LE(at + 10) !== 0) throw new HttpError(400, "archive entries must be stored");
+    if (local + 30 > zip.length || zip.readUInt32LE(local) !== 0x04034b50) throw new HttpError(400, "malformed archive");
+    const localName = zip.subarray(local + 30, local + 30 + zip.readUInt16LE(local + 26)).toString("utf8");
+    const dataAt = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
+    if (localName !== name || entries.has(name) || dataAt + size > zip.length) throw new HttpError(400, "malformed archive");
+    entries.set(name, zip.subarray(dataAt, dataAt + size));
+    at += 46 + nameLen + zip.readUInt16LE(at + 30) + zip.readUInt16LE(at + 32);
+  }
+  return entries;
+}
+
+async function callImport(req, res, user) {
+  const type = (req.headers["content-type"] ?? "").toLowerCase();
+  let zip;
+  if (type.startsWith("application/zip")) {
+    zip = await readBody(req, MAX_RECORDING);
+  } else if (type.startsWith("multipart/form-data")) {
+    let file;
+    try {
+      const body = await readBody(req, MAX_RECORDING);
+      file = (await new Response(body, { headers: { "Content-Type": req.headers["content-type"] } }).formData()).get("file");
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      throw new HttpError(400, "malformed form");
+    }
+    if (!(file instanceof Blob)) throw new HttpError(400, "file");
+    zip = Buffer.from(await file.arrayBuffer());
+  } else {
+    throw new HttpError(415, "application/zip or multipart/form-data expected");
+  }
+
+  const entries = storedEntries(zip);
+  let envelope;
+  try {
+    envelope = JSON.parse(entries.get("calls.json")?.toString("utf8") ?? "");
+  } catch {
+    throw new HttpError(400, "calls.json");
+  }
+  const call = envelope?.calls?.[0];
+  if (
+    envelope?.version !== 1 ||
+    Object.keys(envelope).some((k) => k !== "version" && k !== "calls") ||
+    envelope.calls.length !== 1 ||
+    !call || typeof call !== "object" ||
+    Object.keys(call).some((k) => !CALL_FIELDS.has(k)) ||
+    call.type !== "web" ||
+    typeof call.id !== "string"
+  ) {
+    throw new HttpError(400, "one web call with known fields expected");
+  }
+  // the app picks neither the customer nor a dedup id another user's import could collide with
+  if ((call.customerNumber ?? undefined) !== customerNumberOf(user)) throw new HttpError(403, "customer number does not match the session");
+  if (call.externalCallId != null) throw new HttpError(400, "externalCallId is not accepted here");
+  for (const name of entries.keys()) {
+    if (name === "calls.json") continue;
+    const m = RECORDING_NAME.exec(name);
+    if (!m || m[1] !== call.id) throw new HttpError(400, `unexpected file ${name}`);
+  }
+  const form = new FormData();
+  form.append("file", new Blob([zip], { type: "application/zip" }), "recording.zip");
+  const r = await upstream(`${DASHBOARD}/api/v2/call/import`, "FREYA_IMPORT_KEY", { method: "POST", body: form }, 120_000);
+  await relay(res, r);
+}
+
 // Exact paths only, matched after normalising, and the query string is dropped:
 // "/freya/api/v2/chat/../../v2/agents" never reaches another endpoint with your key.
 const ROUTES = {
@@ -185,6 +279,7 @@ const ROUTES = {
   "/freya/api/v2/chat/end": chatEnd,
   "/freya/v1/audio/speech": speech,
   "/freya/v1/audio/transcriptions": transcriptions,
+  "/freya/api/v2/call/import": callImport,
 };
 // Live STT (/v1/audio/stream) is a WebSocket; proxying it needs a WebSocket server and is left out here.
 
