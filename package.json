@@ -1,6 +1,6 @@
 {
   "name": "@freyavoice/agent-sdk",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Freya Agent SDK for web, React Native and Node: agents over WebRTC or REST, speech-to-text, text-to-speech",
   "license": "Apache-2.0",
   "author": "Freya Voice AI",

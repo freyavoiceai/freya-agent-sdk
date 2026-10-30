@@ -89,7 +89,7 @@ Runnable examples are in [`examples/`](examples/). The full API reference is gen
 
 ## Status
 
-Version 0.2.0. The public API may still change before 1.0; every change is listed in [CHANGELOG.md](CHANGELOG.md). Planned next: a React Native WebRTC transport, React hooks, client tools (the agent triggers an action in the app), and a disconnect reason on `disconnected`.
+The public API may still change before 1.0; every version and change is listed in [CHANGELOG.md](CHANGELOG.md). Planned next: a React Native WebRTC transport, React hooks, client tools (the agent triggers an action in the app), and a disconnect reason on `disconnected`.
 
 ## Development
 
