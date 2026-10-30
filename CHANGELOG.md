@@ -4,6 +4,11 @@ All notable changes to this package. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-30
+
+### Changed
+- `ConversationRecorder` stores the customer's and the assistant's audio as separate tracks by default, so the dashboard plays them apart. `tracks: false` turns this off. When the three files would pass the 50 MB limit (about 8 minutes) only the merged file is sent.
+
 ## [0.3.1] - 2026-10-30
 
 ### Fixed

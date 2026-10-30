@@ -64,7 +64,12 @@ describe("ConversationRecorder archive", () => {
     rec.end("customer-left");
 
     const files = unzip(rec.archive());
-    expect([...files.keys()]).toEqual(["calls.json", `recordings/${rec.callId}.wav`]);
+    expect([...files.keys()]).toEqual([
+      "calls.json",
+      `recordings/${rec.callId}.wav`,
+      `recordings/${rec.callId}_user.wav`,
+      `recordings/${rec.callId}_assistant.wav`,
+    ]);
     const call = callOf(files);
     expect(call).toMatchObject({
       id: rec.callId,
@@ -78,7 +83,11 @@ describe("ConversationRecorder archive", () => {
       endedAt: new Date(1_005_000).toISOString(),
       transcript: "User: Kart borcum ne kadar?\nAI: Kart borcunuz 4.250 lira.",
       metadata: { app: "7.1", source: "freya-agent-sdk" },
-      recordingTracks: [{ track: "single", ext: "wav" }],
+      recordingTracks: [
+        { track: "single", ext: "wav" },
+        { track: "user", ext: "wav" },
+        { track: "assistant", ext: "wav" },
+      ],
     });
     expect(call.messages).toEqual([
       { role: "user", message: "Kart borcum ne kadar?", time: 1_001_000, endTime: 1_002_000, secondsFromStart: 1, duration: 1000, heard: "kart borcum ne kadar", edited: false },
@@ -112,8 +121,8 @@ describe("ConversationRecorder archive", () => {
     ]);
   });
 
-  it("converts every clip to the recording's rate and can keep separate tracks", () => {
-    const { rec } = recorder({ tracks: true });
+  it("converts every clip to the recording's rate and keeps separate tracks", () => {
+    const { rec } = recorder();
     rec.botAudio(tone(48000, 30, 48000), { at: 1_000_000 });
     rec.user(wavFromPcm(tone(8000, 20, 8000)), "evet", { at: 1_000_000 });
     const files = unzip(rec.archive());
@@ -125,6 +134,21 @@ describe("ConversationRecorder archive", () => {
       { track: "user", ext: "wav" },
       { track: "assistant", ext: "wav" },
     ]);
+  });
+
+  it("keeps only the merged file with tracks: false or when the tracks would not fit", () => {
+    const off = recorder({ tracks: false }).rec;
+    off.user(tone(1600, 1), "evet");
+    const offFiles = unzip(off.archive());
+    expect([...offFiles.keys()]).toEqual(["calls.json", `recordings/${off.callId}.wav`]);
+    expect(callOf(offFiles).recordingTracks).toEqual([{ track: "single", ext: "wav" }]);
+
+    // about 9 minutes at 16 kHz: the merged file fits, three of them would not
+    const { rec } = recorder();
+    rec.user(tone(16000 * 540, 1), "uzun");
+    const files = unzip(rec.archive());
+    expect([...files.keys()]).toEqual(["calls.json", `recordings/${rec.callId}.wav`]);
+    expect(callOf(files).recordingTracks).toEqual([{ track: "single", ext: "wav" }]);
   });
 
   it("records what an output plays, up to where barge-in stopped it", async () => {
