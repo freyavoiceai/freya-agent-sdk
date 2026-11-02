@@ -28,6 +28,13 @@ webView.addJavascriptInterface(MicBridge(webView), "FreyaMicNative")
 
 `VoiceActivity` does not open the microphone; it reads the frames it is given, so its `level` and `speechStart` events work the same with the app's frames.
 
-## Not verified yet
+## Steps
 
-The example is not yet run on a device.
+1. In the page: `npm install --save-exact @freyavoice/agent-sdk`, and copy `native-mic.js` next to your code.
+2. In the app: copy `MicBridge.kt`, change its `package` line to your app's package, add the `RECORD_AUDIO` permission, and register it with `addJavascriptInterface` as above.
+3. In the page: on press call `mic.start()`, on release `await mic.stop()` and pass the PCM to `speech.stt.transcribe`, as in `usage.js`. The token and STT/TTS URLs are the same as in a browser.
+4. Load the page in the WebView (`http://` works) and hold the button. If `mic.start()` returns `false`, the app has no microphone permission yet.
+
+## Tested
+
+On an Android 15 phone, in a small WebView app with `MicBridge.kt`: frames reached the page, the `VoiceActivity` level moved, and the recording was transcribed.
