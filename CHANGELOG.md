@@ -6,6 +6,7 @@ All notable changes to this package. The format follows [Keep a Changelog](https
 
 ### Added
 - [Android WebView](docs/android-webview.md): what the microphone needs in a WebView, and an example that records in the app and passes 50 ms PCM frames to the page (`examples/android-webview-mic/`), with `VoiceActivity` levels from the same frames.
+- Android WebView: the microphone in an `https` page with only a permission handler in the app (`examples/android-webview-permission/`).
 
 ## [0.3.2] - 2026-10-30
 

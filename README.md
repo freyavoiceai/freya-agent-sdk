@@ -75,7 +75,7 @@ speech.reader(output).push({ text: reply, final: true });
 | [Reading a chunked answer](docs/reading-chunked-answers.md) | `SpeechReader`: order, lost chunks, retries, word timing, barge-in |
 | [Recording a conversation](docs/recording.md) | `ConversationRecorder`: what is stored, sending, the backend route |
 | [React Native](docs/react-native.md) | What runs on React Native today and how to wire audio |
-| [Android WebView](docs/android-webview.md) | The microphone in a WebView, or recorded in the app and passed to the page |
+| [Android WebView](docs/android-webview.md) | The microphone in a WebView page (https, permission only), or recorded in the app and passed to the page |
 | [Events and errors](docs/events-and-errors.md) | Every event and error class, and what to do with each |
 
 Runnable examples are in [`examples/`](examples/). The full API reference is generated from the source with `npm run docs` (output in `docs/api/`).
