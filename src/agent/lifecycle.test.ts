@@ -107,6 +107,52 @@ describe("FreyaClient lifecycle", () => {
     expect(c.state).toBe("ready");
   });
 
+  it("goes on without the dashboard's relay servers when that request never answers", async () => {
+    // like fetch: pending until aborted
+    const hung = vi.fn((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+      }),
+    );
+    vi.stubGlobal("fetch", hung);
+    try {
+      // the relay request gets connectTimeoutMs, then the handshake its own
+      const c = new FreyaClient({ baseUrl: "https://x", token: "t", logLevel: "none", connectTimeoutMs: 200 });
+      const pending = c.connect();
+      await vi.waitFor(() => expect(created).toHaveLength(1), { timeout: 2000, interval: 5 });
+      expect(hung).toHaveBeenCalledTimes(1);
+      created[0].resolveConnect?.();
+      await pending;
+      expect(c.state).toBe("ready");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("stops waiting for the relay servers when the call is hung up", async () => {
+    let aborted = false;
+    vi.stubGlobal("fetch", (_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          aborted = true;
+          reject(new DOMException("aborted", "AbortError"));
+        });
+      }),
+    );
+    try {
+      const c = new FreyaClient({ baseUrl: "https://x", token: "t", logLevel: "none" });
+      const pending = c.connect();
+      await tick();
+      await c.disconnect();
+      await pending;
+      expect(aborted).toBe(true);
+      expect(created).toHaveLength(0);
+      expect(c.state).toBe("disconnected");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("reports the handshake state while it runs", async () => {
     const c = client();
     const pending = c.connect();

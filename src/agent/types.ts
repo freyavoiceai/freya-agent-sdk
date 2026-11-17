@@ -39,7 +39,9 @@ export interface FreyaClientConfig {
   logLevel?: "none" | "error" | "warn" | "info" | "debug";
   /**
    * `connect()` gives up when the WebRTC handshake has not finished after this long (ms, default
-   * 30 000). The microphone permission prompt does not count. 0 turns it off.
+   * 30 000). The request for the dashboard's ICE servers, made first when `iceServers` is left out,
+   * gets the same time; after it the client connects without them. The microphone permission
+   * prompt does not count. 0 turns it off.
    */
   connectTimeoutMs?: number;
 }

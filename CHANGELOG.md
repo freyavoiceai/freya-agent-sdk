@@ -8,6 +8,9 @@ All notable changes to this package. The format follows [Keep a Changelog](https
 - [Android WebView](docs/android-webview.md): what the microphone needs in a WebView, and an example that records in the app and passes 50 ms PCM frames to the page (`examples/android-webview-mic/`), with `VoiceActivity` levels from the same frames.
 - Android WebView: the microphone in an `https` page with only a permission handler in the app (`examples/android-webview-permission/`).
 
+### Fixed
+- `FreyaClient.connect()` waited for ever when the dashboard's ICE server request (`/api/token/webrtc/ice-servers`, made when `iceServers` is left out) never answered: it runs before the handshake, so `connectTimeoutMs` did not cover it, and `state` said `disconnected` meanwhile. The request now gets `connectTimeoutMs` as well (default 30 s, 0 still waits), after which the client connects without those servers, as it already did when the request failed.
+
 ## [0.3.2] - 2026-10-30
 
 ### Changed
