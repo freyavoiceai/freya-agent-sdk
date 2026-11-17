@@ -7,6 +7,10 @@ All notable changes to this package. The format follows [Keep a Changelog](https
 ### Added
 - [Android WebView](docs/android-webview.md): what the microphone needs in a WebView, and an example that records in the app and passes 50 ms PCM frames to the page (`examples/android-webview-mic/`), with `VoiceActivity` levels from the same frames.
 - Android WebView: the microphone in an `https` page with only a permission handler in the app (`examples/android-webview-permission/`).
+- `VoiceActivity` option `floorWindowMs` (default 3000, 0 turns it off).
+
+### Fixed
+- `VoiceActivity` stayed `speaking` for ever when the room turned louder than `ratio` times its noise floor (an air conditioner, a car, a street): the floor only learned from quiet frames, and there were none any more. With nobody speaking, `speechStart` fired and `speechEnd` never came. The floor now also rises to the quietest frame of the last `floorWindowMs`; in the same case `speechEnd` comes about 4 s after the noise starts. Speech dips between syllables, so it keeps its floor.
 
 ## [0.3.2] - 2026-10-30
 
