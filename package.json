@@ -76,7 +76,7 @@
     "@eslint/js": "^10.0.1",
     "@pipecat-ai/client-js": "^1.16.0",
     "@pipecat-ai/small-webrtc-transport": "^1.11.2",
-    "@vitest/coverage-v8": "^4.1.12",
+    "@vitest/coverage-v8": "^5.1.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.15.0",
     "jsdom": "^27.4.0",
