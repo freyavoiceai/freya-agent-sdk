@@ -52,7 +52,7 @@ Events are listed in [Events and errors](events-and-errors.md).
 
 ## Network
 
-- The browser needs a reachable relay (TURN) on networks that block direct UDP. By default the client fetches the dashboard's ICE servers (`/api/token/webrtc/ice-servers`); pass `iceServers` to use your own, for example inside a bank's network.
+- The browser needs a reachable relay (TURN) on networks that block direct UDP. By default the client fetches the dashboard's ICE servers (`/api/token/webrtc/ice-servers`); pass `iceServers` to use your own, for example inside a bank's network. When that request fails or has not answered within `connectTimeoutMs`, the client connects without them.
 - If the connection drops, the client does not reconnect the session; it ends with `disconnected`. Start a new one with a fresh token.
 - Remote audio plays through a hidden `<audio>` element the client creates.
 
