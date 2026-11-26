@@ -10,6 +10,7 @@
 | `FreyaSpeech.tts` | Text to speech | REST |
 | `SpeechReader` | Reads an answer aloud as it arrives in chunks: orders them, recovers a lost one, plays sentence by sentence | REST |
 | `VoiceActivity` | "The user is speaking" from microphone frames | local |
+| `Dictation` | Sends PCM frames from your own recorder as one 16 kHz WAV request to your URL, with caps and retries; no Freya token | REST, to your proxy |
 | `ConversationRecorder` | Files a speech-only conversation in the dashboard as a call: transcript and recording | REST, through your backend |
 
 ## Install
@@ -63,6 +64,30 @@ const { reply, ended } = await chat.send(text);
 speech.reader(output).push({ text: reply, final: true });
 ```
 
+## Dictation from your own recorder
+
+`Dictation` takes PCM frames from the app's recorder (any sample rate, mono or stereo), encodes one 16 kHz mono WAV and posts it to your URL with your headers. It holds no Freya token. React Native example, with `react-native-live-audio-stream` as the recorder:
+
+```ts
+import { Dictation } from "@freyavoice/agent-sdk/speech";
+
+const dictation = new Dictation({
+  url: "https://proxy.example/stt",
+  headers: async () => ({ Authorization: `Bearer ${await appToken()}`, "X-Call-Id": callId, "X-Turn-Id": String(turnId) }),
+});
+LiveAudioStream.on("data", (b64) => {
+  const bytes = Buffer.from(b64, "base64");
+  const frames = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.length / 2);
+  if (!dictation.push(frames, 44100)) LiveAudioStream.stop(); // 20 s cap reached
+});
+LiveAudioStream.start();
+// on release:
+LiveAudioStream.stop();
+const { text } = await dictation.finish();
+```
+
+See [Dictation](docs/dictation.md) for the cap, retry rules and errors.
+
 ## Guides
 
 | Guide | Covers |
@@ -72,6 +97,7 @@ speech.reader(output).push({ text: reply, final: true });
 | [Voice agent over WebRTC](docs/voice-agent-webrtc.md) | `FreyaClient`: connect, events, mute, text in a call, ICE servers |
 | [Agent chat over REST](docs/agent-chat-rest.md) | `AgentChat`: turns, customer variables, ending a call |
 | [Speech](docs/speech.md) | STT (REST and live), TTS, voice activity |
+| [Dictation](docs/dictation.md) | `Dictation`: PCM frames from your recorder to one WAV request on your proxy, with caps, retries and no Freya token |
 | [Reading a chunked answer](docs/reading-chunked-answers.md) | `SpeechReader`: order, lost chunks, retries, word timing, barge-in |
 | [Recording a conversation](docs/recording.md) | `ConversationRecorder`: what is stored, sending, the backend route |
 | [React Native](docs/react-native.md) | What runs on React Native today and how to wire audio |

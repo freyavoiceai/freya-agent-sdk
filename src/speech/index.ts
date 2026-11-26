@@ -64,6 +64,22 @@ export {
   type ImportResult,
   type RecorderOptions,
 } from "./recorder.js";
+export {
+  Dictation,
+  DictationError,
+  MAX_DICTATION_BYTES,
+  MAX_DICTATION_SECONDS,
+  type DictationErrorCode,
+  type DictationEvents,
+  type DictationOptions,
+  type DictationRequestInfo,
+  type DictationRetry,
+  type DictationTranscript,
+  type DictationTransport,
+  type DictationTransportRequest,
+  type DictationTransportResponse,
+} from "./dictation.js";
+export { DICTATION_RATE, Resampler, floatToInt16, toMonoFloat } from "./pcm.js";
 export { SpeechReader, type Chunk, type ReaderEvents, type ReaderOptions, type ReaderSummary } from "./reader.js";
 export {
   FreyaStt,
