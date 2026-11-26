@@ -69,7 +69,7 @@ vad.on("level", ({ rms }) => drawLevel(rms));
 mic.onFrame((frame) => vad.push(frame, 16000));
 ```
 
-It compares each frame's energy with an adaptive noise floor. Options: `startMs` (speech this long starts speaking), `stopMs` (silence this long ends it), `minLevel`, `ratio`. `reset()` clears its state.
+It compares each frame's energy with an adaptive noise floor. Options: `startMs` (speech this long starts speaking), `stopMs` (silence this long ends it), `minLevel`, `ratio`, `floorWindowMs` (when the room turns louder and stays so, the floor rises to the quietest moment of this window, default 3000 ms, so steady noise ends `speaking` instead of holding it). `reset()` clears its state.
 
 ## Text helpers
 
