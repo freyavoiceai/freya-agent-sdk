@@ -33,7 +33,7 @@ const { text, language, duration } = await speech.stt.transcribe(recording);
 ## Speech to text, live
 
 ```js
-const stream = await speech.stt.stream({ sampleRate: 16000 });
+const stream = await speech.stt.stream({ sampleRate: 48000 });   // the rate your microphone gives
 stream.on("partial", ({ text, final }) => showDraft(text));
 stream.on("result", ({ text }) => submit(text));
 stream.on("error", ({ message }) => showError(message));
@@ -43,6 +43,7 @@ stopButton.onclick = () => stream.finish();    // the service sends the result, 
 cancelButton.onclick = () => stream.cancel();
 ```
 
+- `sampleRate` is the rate of the frames you send (default 16 000). The service reads every frame as 16 kHz whatever its config says, so the stream converts other rates (8 kHz telephone audio, 44.1 or 48 kHz from a microphone) to 16 kHz before sending; `finish()` sends the converted tail.
 - Frames sent before the socket opens are queued, up to `maxQueuedBytes` (default 1 MB, about 30 s at 16 kHz); more fails the stream. Frames after `finish()` are dropped.
 - `openTimeoutMs` (default 10 000) and `resultTimeoutMs` (after `finish()`, default 15 000) end a stream that hangs, with one `error`. A failing socket, or an `error` message from the service, reports one `error`, then `close`; `cancel()` reports none.
 - The token goes in an `Authorization` header, which React Native's `WebSocket` sends. Browsers cannot send it, and Node's built-in `WebSocket` drops it: from a browser, point `stt.url` at a proxy; in Node, pass `createWebSocket`, for example with the `ws` package: `(url, headers) => new WebSocket(url, { headers })`.

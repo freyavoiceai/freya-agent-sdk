@@ -65,6 +65,68 @@ describe("FreyaStt.stream", () => {
     expect(ws.sent).toHaveLength(3);
   });
 
+  // the service reads every frame as 16 kHz whatever sample_rate the config names
+  describe("at another sample rate", () => {
+    const tone = (rate: number, seconds: number) =>
+      Int16Array.from({ length: rate * seconds }, (_, i) => Math.round(16384 * Math.sin((2 * Math.PI * 1000 * i) / rate)));
+
+    function audioSent(ws: FakeSocket): Int16Array {
+      const frames = ws.sent.filter((m): m is ArrayBuffer => m instanceof ArrayBuffer).map((b) => new Int16Array(b));
+      const out = new Int16Array(frames.reduce((n, f) => n + f.length, 0));
+      let at = 0;
+      for (const f of frames) {
+        out.set(f, at);
+        at += f.length;
+      }
+      return out;
+    }
+
+    function maxError(pcm: Int16Array, skip = 400): number {
+      let worst = 0;
+      for (let i = skip; i < pcm.length - skip; i++) {
+        worst = Math.max(worst, Math.abs(pcm[i] / 32768 - 0.5 * Math.sin((2 * Math.PI * 1000 * i) / 16000)));
+      }
+      return worst;
+    }
+
+    it("converts 48 kHz microphone frames to 16 kHz and tells the service 16 000", async () => {
+      const ws = new FakeSocket();
+      const stream = await stt().stream({ sampleRate: 48000, createWebSocket: () => ws });
+      ws.open();
+      const x = tone(48000, 1);
+      for (let i = 0; i < x.length; i += 960) stream.send(x.subarray(i, i + 960)); // 20 ms frames
+      stream.finish();
+
+      expect(JSON.parse(ws.sent[0] as string)).toEqual({ type: "config", language: "tr", sample_rate: 16000 });
+      expect(JSON.parse(ws.sent[ws.sent.length - 1] as string)).toEqual({ type: "close" });
+      const pcm = audioSent(ws);
+      expect(Math.abs(pcm.length - 16000)).toBeLessThanOrEqual(1);
+      expect(maxError(pcm)).toBeLessThan(0.01);
+    });
+
+    it("converts 8 kHz frames queued before the socket opens, ArrayBuffers too", async () => {
+      const ws = new FakeSocket();
+      const stream = await stt().stream({ sampleRate: 8000, createWebSocket: () => ws });
+      const x = tone(8000, 1);
+      for (let i = 0; i < x.length; i += 160) stream.send(x.slice(i, i + 160).buffer);
+      stream.finish();
+      ws.open();
+
+      expect(JSON.parse(ws.sent[0] as string)).toEqual({ type: "config", language: "tr", sample_rate: 16000 });
+      const pcm = audioSent(ws);
+      expect(Math.abs(pcm.length - 16000)).toBeLessThanOrEqual(1);
+      expect(maxError(pcm)).toBeLessThan(0.01);
+    });
+
+    it("rejects a rate that is not a positive number before connecting", async () => {
+      const connect = vi.fn(() => new FakeSocket());
+      for (const sampleRate of [0, -16000, Number.NaN, Number.POSITIVE_INFINITY]) {
+        await expect(stt().stream({ sampleRate, createWebSocket: connect })).rejects.toThrow(RangeError);
+      }
+      expect(connect).not.toHaveBeenCalled();
+    });
+  });
+
   it("emits partials, then the result, and closes without an error", async () => {
     const ws = new FakeSocket();
     const stream = await stt().stream({ createWebSocket: () => ws });

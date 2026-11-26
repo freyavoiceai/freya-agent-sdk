@@ -4,6 +4,9 @@ All notable changes to this package. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Fixed
+- `stt.stream({ sampleRate })` with a rate other than 16 000 sent the frames as they were, and the service reads every frame as 16 kHz whatever `sample_rate` its config names: 48 kHz microphone audio played three times too slow, 8 kHz telephone audio twice too fast, and came back as other words. The stream now converts the frames to 16 kHz with `Resampler` and tells the service 16 000.
+
 ## [0.4.0] - 2026-11-26
 
 ### Added

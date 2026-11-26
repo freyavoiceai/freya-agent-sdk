@@ -1,8 +1,15 @@
 import { secureBase, type TokenKeeper } from "./auth.js";
 import { Emitter } from "./emitter.js";
+import { Resampler, floatToInt16, toMonoFloat } from "./pcm.js";
 import { errorFrom, type Pcm } from "./tts.js";
 
 export const DEFAULT_STT_URL = "https://stt.freyavoice.ai";
+
+/**
+ * The live service reads every frame as 16 kHz, whatever `sample_rate` the config names: 8 or 48 kHz audio
+ * sent as is plays at the wrong speed and comes back as other words. The stream converts to this rate itself.
+ */
+const STREAM_RATE = 16000;
 
 export interface SttOptions {
   /** Speech service root, without /v1. Point it at your own backend to proxy Freya. */
@@ -130,14 +137,19 @@ export class FreyaStt {
     };
   }
 
-  /** Live transcription over a WebSocket: send 16 kHz PCM frames, get partials, then the result. */
+  /**
+   * Live transcription over a WebSocket: send 16-bit mono PCM frames at `sampleRate` (default 16 000), get
+   * partials, then the result. Frames at another rate are converted to 16 kHz before they are sent.
+   */
   async stream(
     options: { language?: string; sampleRate?: number; createWebSocket?: WebSocketFactory } & SttStreamOptions = {},
   ): Promise<SttStream> {
+    const sampleRate = options.sampleRate ?? STREAM_RATE;
+    if (!(sampleRate > 0) || !Number.isFinite(sampleRate)) throw new RangeError("sampleRate must be a positive number");
     const token = await this.keeper.token();
     const url = this.url.replace(/^http/, "ws") + "/v1/audio/stream";
     const ws = (options.createWebSocket ?? defaultWebSocket)(url, { Authorization: `Bearer ${token}` });
-    return new SttStream(ws, { type: "config", language: options.language ?? this.language, sample_rate: options.sampleRate ?? 16000 }, options);
+    return new SttStream(ws, { type: "config", language: options.language ?? this.language, sample_rate: sampleRate }, options);
   }
 }
 
@@ -160,9 +172,17 @@ export class SttStream extends Emitter<SttStreamEvents> {
   private closed = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private readonly o: Required<SttStreamOptions>;
+  // set when the frames come at another rate than the service reads
+  private readonly resampler: Resampler | null = null;
 
+  /** `config.sample_rate` is the rate of the frames the app sends; the service is told 16 000, the rate it reads. */
   constructor(private readonly ws: WebSocketLike, config: Record<string, unknown>, options: SttStreamOptions = {}) {
     super();
+    const rate = config.sample_rate;
+    if (typeof rate === "number" && rate !== STREAM_RATE) {
+      this.resampler = new Resampler(rate, STREAM_RATE);
+      config = { ...config, sample_rate: STREAM_RATE };
+    }
     this.o = {
       openTimeoutMs: options.openTimeoutMs ?? 10_000,
       resultTimeoutMs: options.resultTimeoutMs ?? 15_000,
@@ -217,7 +237,17 @@ export class SttStream extends Emitter<SttStreamEvents> {
   /** One frame of 16-bit mono PCM at the configured rate. Ignored after `finish()` or `cancel()`. */
   send(frame: Int16Array | ArrayBuffer): void {
     if (this.finished || this.settled || this.closed) return;
+    if (this.resampler) {
+      const pcm = frame instanceof ArrayBuffer ? new Int16Array(frame) : frame;
+      this.put(floatToInt16(this.resampler.process(toMonoFloat(pcm, 1))));
+      return;
+    }
+    this.put(frame);
+  }
+
+  private put(frame: Int16Array | ArrayBuffer): void {
     const buf = frame instanceof ArrayBuffer ? frame : (frame.buffer.slice(frame.byteOffset, frame.byteOffset + frame.byteLength) as ArrayBuffer);
+    if (!buf.byteLength) return;
     if (this.open) {
       this.ws.send(buf);
       return;
@@ -233,6 +263,9 @@ export class SttStream extends Emitter<SttStreamEvents> {
   /** The speaker is done: the service sends the final result, then the socket closes. */
   finish(): void {
     if (this.finished || this.settled || this.closed) return;
+    // the last few milliseconds the resampler held back
+    if (this.resampler) this.put(floatToInt16(this.resampler.flush()));
+    if (this.settled) return;
     this.finished = true;
     const msg = JSON.stringify({ type: "close" });
     if (this.open) {
