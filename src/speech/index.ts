@@ -79,6 +79,7 @@ export {
   type DictationTransportRequest,
   type DictationTransportResponse,
 } from "./dictation.js";
+export { BridgeMic, type BridgeHost, type BridgeMicOptions } from "./bridge.js";
 export { DICTATION_RATE, Resampler, floatToInt16, toMonoFloat } from "./pcm.js";
 export { SpeechReader, type Chunk, type ReaderEvents, type ReaderOptions, type ReaderSummary } from "./reader.js";
 export {

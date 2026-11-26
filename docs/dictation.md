@@ -1,6 +1,6 @@
 # Dictation: your recorder, one request to your proxy
 
-`Dictation` turns PCM frames from the app's own recorder into one WAV request. It does no capture, so it runs in React Native, browsers and Node, and it holds no Freya token: the URL and the headers are yours.
+`Dictation` turns PCM frames from the app's own recorder into one WAV request. It does no capture, so it runs in a WebView, React Native, browsers and Node, and it holds no Freya token: the URL and the headers are yours.
 
 ```ts
 import { Dictation } from "@freyavoice/agent-sdk/speech";
@@ -72,43 +72,36 @@ new Dictation({
 
 It returns anything with `status`, `headers.get()` and `text()`. A `fetch` `Response` fits. On React Native check that your `fetch` accepts a `Uint8Array` body; if not, pass a transport that wraps it (for example `expo/fetch`).
 
-## React Native example
+## WebView with a native microphone
 
-The SDK does not record. Use any recorder that gives PCM frames, for example `react-native-live-audio-stream` (16-bit PCM in base64 chunks):
+When the page runs inside a native app's WebView there is no `navigator.mediaDevices`; the app opens the microphone and pushes frames into the page. This is the bridge from [Android WebView](android-webview.md), unchanged: the app calls `window.freyaMic.onFrame(base64)` with 16 kHz mono little-endian Int16 frames and `window.freyaMic.onEnd()` after stop. `BridgeMic` installs those two functions and starts and stops the app's microphone.
 
 ```ts
-import LiveAudioStream from "react-native-live-audio-stream";
-import { Buffer } from "buffer";
-import { Dictation, DictationError } from "@freyavoice/agent-sdk/speech";
+import { BridgeMic, Dictation, DictationError } from "@freyavoice/agent-sdk/speech";
 
-const RATE = 44100;
-LiveAudioStream.init({ sampleRate: RATE, channels: 1, bitsPerSample: 16, audioSource: 6, bufferSize: 4096, wavFile: "" });
+const mic = new BridgeMic(); // once per page: installs window.freyaMic for the native app
 
-let dictation: Dictation | undefined;
-
-export function startDictation(callId: string, turnId: number) {
-  const d = new Dictation({
+export async function dictate(callId: string, turnId: number) {
+  const dictation = new Dictation({
     url: "https://proxy.example/stt",
-    headers: async () => ({ Authorization: `Bearer ${await getAppToken()}`, "X-Call-Id": callId, "X-Turn-Id": String(turnId), "X-Language": "tr" }),
+    headers: async () => ({ Authorization: `Bearer ${await appToken()}`, "X-Call-Id": callId, "X-Turn-Id": String(turnId), "X-Language": "tr" }),
   });
-  dictation = d;
-  LiveAudioStream.on("data", (b64: string) => {
-    const bytes = Buffer.from(b64, "base64");
-    const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.length / 2);
-    if (!d.push(pcm, RATE)) void stopDictation();
-  });
-  LiveAudioStream.start();
-}
-
-export async function stopDictation(): Promise<string | undefined> {
-  const d = dictation;
-  if (!d) return;
-  dictation = undefined;
-  LiveAudioStream.stop();
+  if (!mic.start(dictation)) return askForMicrophonePermission();
+  await waitForRelease();
+  await mic.stop();
   try {
-    return (await d.finish()).text;
+    return (await dictation.finish()).text;
   } catch (e) {
     if (e instanceof DictationError) showError(e.code, e.status);
   }
 }
 ```
+
+| Native side | File | Control from the page |
+|---|---|---|
+| Android | [`MicBridge.kt`](../examples/android-webview-mic/MicBridge.kt) | `window.FreyaMicNative.start()` (false without `RECORD_AUDIO`) and `.stop()`, registered with `addJavascriptInterface` |
+| iOS | [`MicBridge.swift`](../examples/ios-webview-mic/MicBridge.swift) | `webkit.messageHandlers.FreyaMicNative.postMessage({ command: "start" \| "stop" })` |
+
+`BridgeMic` uses `FreyaMicNative` when the page has it and the iOS message handler otherwise. `start(dictation)` returns false when Android refuses the microphone. On iOS `start` cannot return the answer, so a refused permission arrives as `onEnd` with no frames and `finish()` rejects with `no_audio`. `bridge.onFrame(fn)` gives the same frames to `VoiceActivity` for a level meter. When the dictation reaches its cap the native microphone is stopped for you.
+
+iOS notes. The app needs `NSMicrophoneUsageDescription` in Info.plist and asks with `requestRecordPermission` before the first recording. `AVAudioSession` uses `.playAndRecord` so replies can still play, with mode `.measurement` to avoid voice processing; set `.voiceChat` instead if you want echo cancellation. The tap delivers the hardware rate (44.1 or 48 kHz) and `AVAudioConverter` converts it to 16 kHz mono Int16 before sending. The iOS example has not been tested on a device yet; the Android one has (see the Android WebView guide).

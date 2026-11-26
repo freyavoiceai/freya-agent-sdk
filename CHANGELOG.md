@@ -8,6 +8,7 @@ All notable changes to this package. The format follows [Keep a Changelog](https
 
 ### Added
 - [`Dictation`](docs/dictation.md): the app pushes PCM frames (Int16 or Float32, any sample rate, mono or stereo) from its own recorder; the SDK resamples to 16 kHz mono 16-bit, encodes a WAV and posts it as one raw `audio/wav` request to a URL you set, with your own headers on every attempt. A dictation is capped at 20 s (configurable, at most 30 s and 2 MB): by default audio past the cap is dropped and `push` returns false, or with `onLimit: "reject"` it throws. It retries 429 (`Retry-After`), 503, 504 and 500 by the service's rules, times out an attempt after 15 s, and holds no Freya token. The transport is injectable (default `fetch`).
+- `BridgeMic`: feeds a `Dictation` from the native microphone of a WebView app, using the `window.freyaMic` frames of the Android WebView guide (and a `FreyaMicNative` message handler on iOS). New `examples/ios-webview-mic/MicBridge.swift` (not yet tested on a device).
 - `Resampler`, `toMonoFloat`, `floatToInt16` and `DictationError`.
 - [Android WebView](docs/android-webview.md): what the microphone needs in a WebView, and an example that records in the app and passes 50 ms PCM frames to the page (`examples/android-webview-mic/`), with `VoiceActivity` levels from the same frames.
 - Android WebView: the microphone in an `https` page with only a permission handler in the app (`examples/android-webview-permission/`).

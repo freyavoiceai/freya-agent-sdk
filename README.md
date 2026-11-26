@@ -10,7 +10,7 @@
 | `FreyaSpeech.tts` | Text to speech | REST |
 | `SpeechReader` | Reads an answer aloud as it arrives in chunks: orders them, recovers a lost one, plays sentence by sentence | REST |
 | `VoiceActivity` | "The user is speaking" from microphone frames | local |
-| `Dictation` | Sends PCM frames from your own recorder as one 16 kHz WAV request to your URL, with caps and retries; no Freya token | REST, to your proxy |
+| `Dictation` | Sends PCM frames from your own recorder or a WebView's native microphone as one 16 kHz WAV request to your URL, with caps and retries; no Freya token | REST, to your proxy |
 | `ConversationRecorder` | Files a speech-only conversation in the dashboard as a call: transcript and recording | REST, through your backend |
 
 ## Install
@@ -64,29 +64,30 @@ const { reply, ended } = await chat.send(text);
 speech.reader(output).push({ text: reply, final: true });
 ```
 
-## Dictation from your own recorder
+## Dictation in a WebView
 
-`Dictation` takes PCM frames from the app's recorder (any sample rate, mono or stereo), encodes one 16 kHz mono WAV and posts it to your URL with your headers. It holds no Freya token. React Native example, with `react-native-live-audio-stream` as the recorder:
+`Dictation` takes PCM frames (any sample rate, mono or stereo), encodes one 16 kHz mono WAV and posts it to your URL with your headers. It holds no Freya token. In an app whose pages run in a WebView there is no `getUserMedia`: the native app opens the microphone and pushes frames into the page, and `BridgeMic` passes them to `Dictation`. The native side is `MicBridge.kt` (Android) or `MicBridge.swift` (iOS), see [Dictation](docs/dictation.md).
 
 ```ts
-import { Dictation } from "@freyavoice/agent-sdk/speech";
+import { BridgeMic, Dictation, DictationError } from "@freyavoice/agent-sdk/speech";
 
-const dictation = new Dictation({
-  url: "https://proxy.example/stt",
-  headers: async () => ({ Authorization: `Bearer ${await appToken()}`, "X-Call-Id": callId, "X-Turn-Id": String(turnId) }),
-});
-LiveAudioStream.on("data", (b64) => {
-  const bytes = Buffer.from(b64, "base64");
-  const frames = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.length / 2);
-  if (!dictation.push(frames, 44100)) LiveAudioStream.stop(); // 20 s cap reached
-});
-LiveAudioStream.start();
-// on release:
-LiveAudioStream.stop();
-const { text } = await dictation.finish();
+const mic = new BridgeMic(); // once per page: installs window.freyaMic for the native app
+
+export async function dictate(callId: string, turnId: number) {
+  const dictation = new Dictation({
+    url: "https://proxy.example/stt",
+    headers: async () => ({ Authorization: `Bearer ${await appToken()}`, "X-Call-Id": callId, "X-Turn-Id": String(turnId), "X-Language": "tr" }),
+  });
+  if (!mic.start(dictation)) return askForMicrophonePermission();
+  await waitForRelease();
+  await mic.stop();
+  try {
+    return (await dictation.finish()).text;
+  } catch (e) {
+    if (e instanceof DictationError) showError(e.code, e.status);
+  }
+}
 ```
-
-See [Dictation](docs/dictation.md) for the cap, retry rules and errors.
 
 ## Guides
 
